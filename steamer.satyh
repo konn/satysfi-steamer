@@ -1,0 +1,612 @@
+% -*- coding: utf-8 -*-
+@require: pervasives
+@require: gr
+@require: list
+@require: math
+@require: color
+
+module Steamer : sig
+
+  val document : 'a -> block-text -> document
+    constraint 'a :: (|
+      title : inline-text;
+      author : inline-text;
+      institute: inline-text;
+      date:      inline-text;
+      show-toc : bool;
+      show-title : bool;
+    |)
+
+  val font-latin-italic : string * float * float
+  direct \ref : [string] inline-cmd
+  direct \ref-page : [string] inline-cmd
+  direct \figure : [inline-text; block-text] inline-cmd
+  direct \fontsize : [length; inline-text] inline-cmd
+  direct +p : [inline-text] block-cmd
+  direct +pn : [inline-text] block-cmd
+  direct +frame : [inline-text?; string?; block-text] block-cmd
+  direct +frame-nc : [inline-text?; string?; block-text] block-cmd
+  direct +section : [string?; inline-text; block-text] block-cmd
+  direct +p-center: [inline-text] block-cmd
+  direct +make-title: [inline-text; inline-text; inline-text; inline-text] block-cmd
+  direct +make-title-blocks: [inline-boxes; inline-boxes; inline-boxes; inline-boxes] block-cmd
+  direct \sout: [inline-text] inline-cmd
+  direct \url : [string] inline-cmd
+  direct \font-size : [length; inline-text] inline-cmd
+  direct \emph : [inline-text] inline-cmd
+  direct \verb : [string] inline-cmd
+  direct \small: [inline-text] inline-cmd
+  direct \LARGE: [inline-text] inline-cmd
+  direct \Large: [inline-text] inline-cmd
+  direct \textsuperscript : [inline-text] inline-cmd
+  direct +centered-image: [length; string] block-cmd
+  direct \insert-image: [length; string] inline-cmd
+end = struct
+
+  let-block ctx +centered-image wid srcpath =
+  let img = load-image srcpath in
+    line-break true true ctx (inline-fil ++ use-image-by-width img wid ++ inline-fil)
+
+  let-inline ctx \insert-image w path =
+    let img = load-image path in
+      use-image-by-width img w
+   
+   
+
+  type toc-element =
+    | TOCElementSection    of string * inline-text
+    | TOCElementFrame      of string * (inline-text option)
+
+
+  let generate-fresh-label =
+    let-mutable count <- 0 in
+      (fun () -> (
+        let () = count <- !count + 1 in
+          `generated:` ^ (arabic (!count))
+      ))
+
+    let blue = Color.rgb (38. /. 255.) (29. /. 255.) (163. /. 255.)
+
+  let-mutable numpages <- 0
+  let-mutable frame-name <- None
+  let-mutable frame-table <- [None]
+
+  let-inline ctx \ref key =
+    let opt = get-cross-reference (key ^ `:num`) in
+    let it =
+      match opt with
+      | None    -> {?}
+      | Some(s) -> embed-string s
+    in
+      read-inline ctx it
+
+
+  let-inline ctx \ref-page key =
+    let opt = get-cross-reference (key ^ `:page`) in
+    let it =
+      match opt with
+      | None    -> {?}
+      | Some(s) -> embed-string s
+    in
+      read-inline ctx it
+
+
+  let font-size-normal  = 12pt
+  let font-size-frame-title = 20pt
+  let font-size-header-footer = 8pt
+  let font-size-title   = 18pt
+  let font-size-author  = 14pt
+  let font-size-date  = 14pt
+  let font-size-institute  = 10pt
+  let font-size-section = 18pt
+
+  let paper-width  = 12.8cm
+  let paper-height = 9.6cm
+  let header-height = 12pt
+  let footer-height = 12pt
+  let text-horizontal-margin = 1cm
+  let text-vertical-margin = font-size-normal *' .5
+  let text-height = paper-height -' text-vertical-margin *' 2. -' footer-height -' header-height
+  let text-width  = paper-width -' text-horizontal-margin *' 2.
+  let text-origin = (text-horizontal-margin, header-height)
+
+  let section-top-margin = 20pt
+  let section-bottom-margin = 12pt
+
+  let font-ratio-latin = 1.
+  let font-ratio-cjk = 0.88
+
+  let font-latin-roman  = (`Junicode`   , font-ratio-latin, 0.)
+  let font-latin-italic = (`Junicode-it`, font-ratio-latin, 0.)
+  let font-latin-sans   = (`Helvetica-Black`    , font-ratio-latin, 0.)
+  let font-cjk-mincho   = (`ipaexm`    , font-ratio-cjk  , 0.)
+  let font-cjk-gothic   = (`ipaexg`    , font-ratio-cjk  , 0.)
+
+  let set-cjk-font font ctx =
+    ctx |> set-font HanIdeographic font
+        |> set-font Kana           font
+
+
+  let placeholder height (origX, origY) =
+     [fill Color.white (Gr.rectangle (origX, origY) (origX, origY +' height))]
+
+  let make-placeholder ctx glue-height =
+      let ht = length-max 0pt glue-height in
+      let ctx2 = ctx |> set-paragraph-margin 0pt 0pt in
+      line-break true false ctx2 (inline-graphics 0pt ht 0pt (placeholder ht))
+
+  let get-standard-context wid =
+    get-initial-context wid (command \math)
+      |> set-dominant-wide-script Kana
+      |> set-language Kana Japanese
+      |> set-language HanIdeographic Japanese
+      |> set-dominant-narrow-script Latin
+      |> set-language Latin English
+      |> set-font Kana           font-cjk-mincho
+      |> set-font HanIdeographic font-cjk-mincho
+      |> set-font Latin          font-latin-roman
+      |> set-math-font `lmodern`
+      |> set-hyphen-penalty 100
+
+
+  let-mutable ref-float-boxes <- []
+
+  let height-of-float-boxes pageno =
+%    let () = display-message `get height` in
+    (!ref-float-boxes) |> List.fold-left (fun h (pn, bb) -> (
+      if pn < pageno then h +' (get-natural-length bb) else h
+    )) 0pt
+
+
+  let-mutable ref-figure <- 0
+
+  let-inline ctx \figure caption inner =
+    let () = ref-figure <- !ref-figure + 1 in
+    let s-num = embed-string (arabic (!ref-figure)) in
+    let bb-inner =
+      let d (_, _) _ _ _ = [] in
+      block-frame-breakable ctx (2pt, 2pt, 2pt, 2pt) (d, d, d, d) (fun ctx -> (
+        read-block ctx inner
+          +++ line-break true true ctx (inline-fil ++ read-inline ctx {図#s-num; #caption;} ++ inline-fil)
+      ))
+    in
+      hook-page-break (fun pbinfo _ -> (
+%        let () = display-message (`register` ^ (arabic pbinfo#page-number)) in
+        ref-float-boxes <- (pbinfo#page-number, bb-inner) :: !ref-float-boxes
+      ))
+
+let title-deco =
+    let deco (x, y) wid hgt dpt =
+      let path1 =
+        let xL = x  in
+        let xR = x +' wid in
+        let yT = y +' hgt in
+        let yB = y -' dpt in
+        let rad = 5pt in
+          Gr.rectangle-round rad (xL, yT) (xR, yB)
+      in
+        [
+          fill blue path1;
+        ]
+    in
+      (deco, deco, deco, deco)
+
+
+  let make-title-block-scheme ctx ib-title ib-author ib-institute ib-date =
+    let pads = (0pt, 0pt , 10pt, 10pt) in
+    let title-bb = block-frame-breakable ctx pads title-deco (fun ctx -> (
+      let ctx-title =
+        ctx |> set-font-size font-size-title
+            |> set-font Latin font-latin-roman
+            |> set-cjk-font font-cjk-gothic
+            |> set-text-color Color.white
+      in
+          form-paragraph ctx-title (inline-fil ++ ib-title ++ inline-fil)
+      ))
+    in
+    let ctx-author =
+      ctx |> set-font-size font-size-author
+           |> set-font Latin font-latin-roman
+           |> set-cjk-font font-cjk-gothic
+           |> set-text-color Color.black
+    in
+    let author-bb = form-paragraph ctx-author (inline-fil ++ ib-author ++ inline-fil)
+    in
+    let ctx-institute =
+      ctx |> set-font-size font-size-institute
+          |> set-font Latin font-latin-roman
+          |> set-text-color Color.black
+    in
+    let institute-bb = form-paragraph ctx-institute (inline-fil ++ ib-institute ++ inline-fil)
+    in
+        let ctx-date =
+      ctx  |> set-font-size font-size-date
+           |> set-font Latin font-latin-roman
+           |> set-text-color Color.black
+    in
+    let date-bb = form-paragraph ctx-date (inline-fil ++ ib-date ++ inline-fil)
+    in
+    let content-block = title-bb +++ author-bb +++ institute-bb +++ date-bb in
+    let glue-height = (text-height -' get-natural-length content-block)
+                      *' .5 in
+    let glue-block = make-placeholder ctx glue-height
+    in glue-block +++ content-block +++ clear-page
+
+  let-block ctx +make-title-blocks ib-title ib-author ib-institute ib-date =
+    make-title-block-scheme ctx ib-title ib-author ib-institute ib-date
+
+  let-block ctx +make-title it-title it-author it-institute it-date =
+    let ctx-title =
+      ctx |> set-font-size font-size-title
+          |> set-font Latin font-latin-roman
+          |> set-cjk-font font-cjk-gothic
+          |> set-text-color Color.white in
+    let ctx-author =
+      ctx |> set-font-size font-size-author
+           |> set-font Latin font-latin-roman
+           |> set-cjk-font font-cjk-gothic
+           |> set-text-color Color.black
+    in
+    let ctx-institute =
+      ctx |> set-font-size font-size-institute
+          |> set-font Latin font-latin-roman
+          |> set-text-color Color.black
+    in
+    let ctx-date =
+      ctx  |> set-font-size font-size-date
+           |> set-font Latin font-latin-roman
+           |> set-text-color Color.black
+    in make-title-block-scheme ctx
+         (read-inline ctx-title it-title)
+         (read-inline ctx-author it-author)
+         (read-inline ctx-institute it-institute)
+         (read-inline ctx-date      it-date)
+
+  let make-frame-title ctx =
+    ctx |> set-font-size font-size-frame-title
+        |> set-font Latin font-latin-sans
+        |> set-cjk-font font-cjk-gothic
+        |> set-text-color Color.white
+
+
+  let make-section-title ctx =
+    ctx |> set-font-size font-size-section
+        |> set-font Latin font-latin-sans
+        |> set-cjk-font font-cjk-gothic
+
+  let-mutable toc-acc-ref <- []
+
+
+  let get-cross-reference-number label =
+    match get-cross-reference (label ^ `:num`) with
+    | None    -> `?`
+    | Some(s) -> s
+
+
+  let get-cross-reference-page label =
+    match get-cross-reference (label ^ `:page`) with
+    | None    -> `?`
+    | Some(s) -> s
+
+  let document record inner =
+    % -- constants --
+    let title = record#title in
+    let author = record#author in
+    let institute = record#institute in
+    let date = record#date in
+    let page = UserDefinedPaper  (paper-width, paper-height) in
+    let txtorg = text-origin in
+    let ftrhgt = footer-height in
+    let hdrorg = (0mm, 0mm) in
+    let ftrorg = (0mm, paper-height -' footer-height) in
+    let hdrwid = paper-width in
+    let hdrhgt = header-height in
+    let txtwid = text-width in
+    let txthgt = text-height in
+    let ftrwid = paper-width in
+    let thickness = 0.5pt in
+
+    let ctx-doc = get-standard-context txtwid in
+
+    % -- title --
+    let bb-title =
+      if record#show-title then
+        read-block ctx-doc '<+make-title(title)(author)(institute)(date);>
+      else
+        block-nil
+    in
+
+    % -- main --
+    let bb-main = read-block ctx-doc inner in
+
+    % -- table of contents --
+    let bb-toc =
+      if not record#show-toc then
+        block-nil
+      else
+        let bb-toc-title =
+          line-break true false ctx-doc (read-inline (make-section-title ctx-doc) {目次} ++ inline-fil)
+        in
+        let bb-toc-main =
+          (!toc-acc-ref) |> List.reverse |> List.fold-left (fun bbacc tocelem -> (
+            match tocelem with
+            | TOCElementFrame(label, title) -> block-nil
+            | TOCElementSection(label, title) ->
+                let it-num = embed-string (get-cross-reference-number label) in
+                let it-page = embed-string (get-cross-reference-page label) in
+                  bbacc +++ line-break true true ctx-doc
+                    (read-inline ctx-doc {#it-num;. #title;} ++ inline-fil ++ read-inline ctx-doc it-page)
+
+          )) block-nil
+        in
+        bb-toc-title +++ bb-toc-main
+    in
+
+    % -- page settings --
+    let pagecontf pbinfo =
+      let hgtfb = height-of-float-boxes pbinfo#page-number in
+      let (txtorgx, txtorgy) = txtorg in
+      (|
+        text-origin = (txtorgx, txtorgy +' hgtfb);
+        text-height = txthgt -' hgtfb;
+      |)
+    in
+    let pagepartsf pbinfo =
+      let pageno = pbinfo#page-number in
+      let header =
+        let () = display-message `GENERATING HEADER` in
+        let elemwid = paper-width *' .5 in
+        let ctx =
+          get-standard-context hdrwid
+            |> set-paragraph-margin 0pt 0pt
+            |> set-font-size font-size-header-footer
+        in
+        let ib-text =
+          let pads = (2pt, 2pt, 2pt, 2pt) in
+          let col-ctx =
+                get-standard-context (hdrwid *' .5)
+                  |> set-paragraph-margin 0pt 0pt
+                  |> set-font-size font-size-header-footer
+                  |> set-text-color Color.white
+          in
+          let ib str = read-inline col-ctx str in
+          let offX0 = (elemwid -' get-natural-width (ib title)) *' .5 in
+          let offX1 = (elemwid -' get-natural-width (ib author)) *' .5 in
+          let gr (origX, origY) =
+              [
+                fill Color.black (Gr.rectangle (origX, origY) (origX +' elemwid, origY +' 12pt));
+                draw-text (offX0, origY +' 3pt) (ib title) ;
+                fill blue (Gr.rectangle (origX +' elemwid, origY) (origX +' elemwid *' 2., origY +' 12pt));
+                draw-text (offX1 +' elemwid, origY +' 3pt) (ib author) ;
+              ] in
+          inline-graphics paper-width hdrhgt 0pt gr
+        in
+       let (bb-float-boxes, acc) =
+         (!ref-float-boxes) |> List.fold-left (fun (bbacc, acc) elem -> (
+           let (pn, bb) = elem in
+             if pn < pageno then
+               let bbs =
+                 line-break true true (ctx |> set-paragraph-margin 0pt 12pt)
+                   (inline-fil ++ embed-block-top ctx txtwid (fun _ -> bb) ++ inline-fil)
+                     % 'ctx' is a dummy context
+               in
+                 (bbacc +++ bbs, acc)
+             else
+               (bbacc, elem :: acc)
+         )) (block-nil, [])
+       in
+       let () = ref-float-boxes <- acc in
+          line-break true true ctx ib-text
+            +++ bb-float-boxes
+      in
+      let footer =
+        let ctx = get-standard-context ftrwid
+               |> set-font-size font-size-header-footer
+        in
+        let it-pageno = embed-string (arabic pbinfo#page-number) in
+        let it-count =
+             match get-cross-reference `pagecount` with
+             | None -> {?}
+             | Some(i) -> embed-string i
+        in
+          line-break true true ctx
+            (inline-fil ++ (read-inline ctx {— #it-pageno; / #it-count; —}) ++ inline-fil)
+      in
+        (|
+          header-origin  = hdrorg;
+          header-content = header;
+          footer-origin  = ftrorg;
+          footer-content = footer;
+        |)
+    in
+    let hook = line-break false false (get-standard-context 0pt)
+        (hook-page-break (fun pbInfo _ -> (
+            let numpages = pbInfo#page-number in
+            register-cross-reference `pagecount` (arabic numpages)
+        )))
+    in
+    page-break page pagecontf pagepartsf (bb-title +++ bb-toc +++ bb-main +++ hook)
+
+  let-mutable needs-indentation-ref <- true
+
+  let-mutable num-section <- 0
+  let-mutable num-frame <- 0
+
+  let quad-indent ctx =
+    inline-skip (get-font-size ctx)
+
+
+  let-block ctx +p inner =
+    let needs-indentation =
+      let () = needs-indentation-ref <- false
+      in false
+    in
+    let ib-inner = read-inline ctx inner in
+    let br-parag =
+      if needs-indentation then
+        (quad-indent ctx) ++ ib-inner ++ inline-fil
+      else
+        ib-inner ++ inline-fil
+    in
+      form-paragraph ctx br-parag
+
+  let-block ctx +p-center inner =
+    let ib-inner = read-inline ctx inner in
+    let br-parag = inline-fil ++ ib-inner ++ inline-fil
+    in form-paragraph ctx br-parag
+
+
+  let-block ctx +pn inner =
+    let () = needs-indentation-ref <- true in
+    let ib-inner = read-inline ctx inner in
+      form-paragraph ctx (ib-inner ++ inline-fil)
+
+
+  let section-scheme ctx label title inner =
+    let () = num-section <- !num-section + 1 in
+    let () = needs-indentation-ref <- false in
+    let () = toc-acc-ref <- (TOCElementSection(label, title)) :: !toc-acc-ref in
+    let bb-inner = read-block ctx inner in bb-inner
+
+  let frame-title-deco = 
+    let deco (x, y) wid hgt dpt =
+      let path1 =
+        let xL = x -' text-horizontal-margin in
+        let xR = xL +' paper-width in
+        let yB = y +' hgt -' dpt in
+          Gr.rectangle (xL, y) (xR, yB)
+      in
+        [
+          fill blue path1;
+        ]
+    in
+      (deco, deco, deco, deco)
+
+
+  let frame-scheme ctx label title inner =
+    let () = display-message `GENERATING FRAME` in
+    let () = num-frame <- !num-frame + 1 in
+    let () = needs-indentation-ref <- false in
+    let () = toc-acc-ref <- (TOCElementFrame(label, title)) :: !toc-acc-ref in
+    let ctx-title = make-frame-title ctx in
+    let bb-title =
+       match title with
+       | Some(txt) ->
+         let ib-title = read-inline ctx-title txt in
+         block-frame-breakable
+           (ctx |> set-paragraph-margin 0pt 0pt)
+           (10pt -' text-horizontal-margin, 10pt, 10pt, 10pt)
+           frame-title-deco
+           (fun ctx ->
+             form-paragraph (make-frame-title ctx) (ib-title ++ inline-fil)
+           )
+       | None -> block-nil
+    in
+    let ib-num =
+        hook-page-break (fun pbinfo _ ->
+          (let () = register-cross-reference (label ^ `:page`) (arabic pbinfo#page-number) in
+           display-message (`Updated table at page ` ^ (arabic pbinfo#page-number))
+          )
+          )
+    in
+    let inner-bb = read-block (ctx |> set-paragraph-margin 0pt 12pt) inner in
+    let glue-height = (text-height -' get-natural-length inner-bb -' get-natural-length bb-title) *' .5 in
+    let glue-bb = make-placeholder ctx glue-height 
+    in bb-title
+       +++ glue-bb
+       +++ inner-bb
+       +++ line-break true true (get-standard-context 0pt) ib-num
+
+  let-block ctx +section ?:labelopt title inner =
+    let label =
+      match labelopt with
+      | None        -> generate-fresh-label ()
+      | Some(label) -> label
+    in
+      section-scheme ctx label title inner
+
+  let-block ctx +frame-nc ?:title ?:labelopt inner =
+    let label =
+      match labelopt with
+      | None        -> generate-fresh-label ()
+      | Some(label) -> label
+    in
+      frame-scheme ctx label title inner
+
+  let-block ctx +frame ?:title ?:labelopt inner =
+    let label =
+      match labelopt with
+      | None        -> generate-fresh-label ()
+      | Some(label) -> label
+    in
+      frame-scheme ctx label title inner +++ clear-page
+
+  let-inline ctx \force-break =
+     discretionary 0 (inline-skip (get-text-width ctx *' 2.)) inline-fil inline-nil
+
+  let-inline ctx \textsuperscript inner =
+    let ctx-sscr =
+      ctx |> set-font-size (get-font-size ctx *' .7)
+          |> set-manual-rising (get-font-size ctx *' .3)
+    in read-inline ctx-sscr inner
+
+  let-inline ctx \font-size size inner =
+    let ctx-size =
+      ctx |> set-font-size size
+    in read-inline ctx-size inner
+
+  let-inline ctx \emph inner =
+    let ctx-emph =
+      ctx |> set-cjk-font font-cjk-gothic
+          |> set-text-color blue
+    in
+      read-inline ctx-emph inner
+
+  let font-size-modify ctx scale inner =
+    let ctx-size =
+      ctx |> set-font-size (get-font-size ctx *' scale)
+    in
+      read-inline ctx-size inner
+
+  let-inline ctx \fontsize size inner =
+    let ctx-size = ctx |> set-font-size (size)
+    in read-inline ctx-size inner
+
+  let-inline ctx \small = font-size-modify ctx .75
+  let-inline ctx \LARGE = font-size-modify ctx 5.
+  let-inline ctx \Large = font-size-modify ctx 3.
+
+  let-inline ctx \sout inner =
+    let deco (x, y) wid hght dept =
+        [ stroke 2pt Color.red (start-path (x, y +' hght *' (1. /. 3.) -' dept)
+          |> line-to (x +' wid, y +' hght *' (1. /. 3.) -' dept)
+          |> terminate-path)
+        ; stroke 2pt Color.red (start-path (x, y +' hght *' (2. /. 3.) -' dept)
+          |> line-to (x +' wid, y +' hght *' (2. /. 3.) -' dept)
+          |> terminate-path)
+        ]
+    in inline-frame-breakable (5pt, 5pt, 0pt, 0pt)
+         (deco, deco, deco, deco)
+         (read-inline ctx inner)
+
+  let-inline ctx \verb inner =
+    let ctx2 = ctx
+        |> set-dominant-narrow-script Latin
+        |> set-font Latin (`Menlo`, .8, 0.)
+        |> set-text-color Color.orange
+    in read-inline ctx2 (embed-string inner)
+
+  let-inline ctx \url inner =
+    let ctx-url =
+       ctx |> set-dominant-narrow-script Latin
+           |> set-font Latin (`Menlo`, .8, 0.)
+    in
+    let deco _ _ _ _ = []
+    in inline-frame-breakable (2pt, 2pt, 2pt, 2pt)
+         (deco, deco, deco, deco)
+         (read-inline ctx-url (embed-string inner))
+end
+
+
+let document = Steamer.document
+  % ad-hoc

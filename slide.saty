@@ -1,0 +1,207 @@
+% -*- coding: utf-8 -*-
+@import: steamer
+@require: gr
+% @import: local-code
+@import: intmap
+@import: local-math
+@import: listings-blue
+@import: highlite
+
+Steamer.document (|
+  title = {\SATySFi;を使ってみた};
+  author = {Hiromi ISHII};
+  institute = {筑波大学数学専攻 博士後期二年};
+  date = {Monday 5\textsuperscript{th} March, 2018};
+  show-title = false;
+  show-toc = false;
+|) '<
+  +section {はじめに} <
+    +make-title{計算論か集合論かWebに関する何か}{Hiromi ISHII}{筑波大学数学専攻 博士後期二年}{Monday 5\textsuperscript{th} March, 2018}
+    +make-title{\sout{計算論か集合論かWebに関する何か}}{Hiromi ISHII}{筑波大学数学専攻 博士後期二年}{Monday 5\textsuperscript{th} March, 2018}
+    +make-title{\SATySFi;を使ってみた}{Hiromi ISHII}{筑波大学数学専攻 博士後期二年}{Monday 5\textsuperscript{th} March, 2018}
+
+    +frame-nc<
+      +p-center{
+         \insert-image(5cm)(`./qr-code.jpg`);
+      }
+
+      +p-center{
+         参照先：\url(`http://bit.ly/2I21pS0`);
+      }
+    >
+
+    +frame ?:({自己紹介と今日の話題})<
+      +listing {
+        * 石井大海（いしい・ひろみ）
+        * 筑波大数学専攻 博士後期二年
+        * 今日の話: \emph{\SATySFi;} (\url(`https://github.com/gfngfn/SATySFi`);)
+            ** 諏訪敬之氏が開発中の\emph{新しい組版システム}．
+            ** \LaTeX;やInDesignの競合
+            ** 未踏プロジェクトにも採択された今大注目のプロダクト
+      }
+    >
+
+    +frame-nc ?:({\SATySFi;の特徴})<
+      +listing {
+        * \emph{エラーのわかりやすさ}と\emph{拡張の容易さ}が売り
+          ** \emph{静的型付き関数型言語}である
+          ** \LaTeX;は結構直接的な項書き換え系，手の込んだマクロを実装しようとすると簡約過程に関する知識が不可欠
+          ** \SATySFi;は具体的に型やパターンが合わない部分を提示
+        * 数式の組みにも対応．
+      }
+            +math(
+                ${\int_{-\infty}^\infty e^{-x^2} \mathrm{d}x = \sqrt{\pi}}
+            );
+    >
+
+   +frame-nc ?:({コード例})<
+     +hcode(```
+          +listing {
+            * 石井大海（いしい・ひろみ）
+            * 筑波大数学専攻 博士後期二年
+            * 今日の話：\emph{\SATySFi;}
+              (\url(`https://github.com/...`);)
+                ** 諏訪敬之氏が開発中の\emph{新組版システム}．
+                ** \LaTeX;やInDesignの競合
+          }
+     ```);
+   >
+
+
+   +frame<
+     +p-center { \LARGE{ところで} }
+   >
+
+   +frame<
+     +p-center { \Large{この} }
+     +p-center { \Large{スライドも} }
+     +p-center { \Large{\SATySFi;製} }
+     +p-center { \Large{です} }
+   >
+
+   +frame-nc ?:({Steamer: \small{Making Slides with \SATySFi;}})<
+     +listing{
+       * \SATySFi;はまだ\emph{黎明期}でスライドの標準パッケージはない
+           ** じゃあ作ろう！
+       * ネタに困っていた3/2(金) 17:30頃，思い立って実装開始
+           ** コードやサンプルを読みつつ 3/3(土) 05:00 AM頃には最低限の機能が実装完了
+           ** 深夜なのに諏訪氏に直接訊くとすぐに答えが返ってくる
+       * 「拡張・実装が容易」という看板はある程度真実といえそう
+     }
+   >
+
+   +frame ?:({\SATySFi;のプログラミング})<
+     +listing{
+       * 基本的にMLベースの文法
+       * 型推論が強力
+       * 高階関数がちゃんと関数として振る舞う（項書換えの挙動を意識する必要がない）ので楽
+       * 黎明期なのでバグもまだある（それはそう）
+     }
+   >
+
+   +frame-nc ?:({コード例})<
+      +hcode?:(10pt)(```
+      let-inline ctx \textsuperscript inner =
+      let ctx-sscr =
+         ctx |> set-font-size (get-font-size ctx *' .7)
+             |> set-manual-rising (get-font-size ctx *' .3)
+      in read-inline ctx-sscr inner
+      ```);
+      +p {
+        ちなみにこのなんちゃって自動シンタックス・ハイライトも自分でつくりました．
+      }
+   >
+  
+   +frame-nc ?:({コード例2：高階関数})<
+      +hcode?:(10pt)(```
+      let font-size-modify ctx scale inner =
+        let ctx-size =
+          ctx |> set-font-size (get-font-size ctx *' scale)
+        in read-inline ctx-size inner
+
+      let-inline ctx \small = font-size-modify ctx .75
+      let-inline ctx \LARGE = font-size-modify ctx 5.
+      let-inline ctx \Large = font-size-modify ctx 3.
+      ```);
+   >
+
+   +frame-nc ?:({\SATySFi;の型システム})<
+     +listing{
+       * \emph{インラインボックス}を組合せて\emph{ブロックボックス}を作る．
+           ** \emph{インラインボックス}＝文字組み方向の文字列\math(${+ \alpha});．文字列の折り返し情報やフォント情報などを持つ．
+           ** \emph{ブロックボックス}＝段落等．分割されページに割付．
+       * \emph{文脈}によってボックスの幅・高さやフォントが決まる．
+       * 他の基本型：文字列，整数，浮動小数点数，長さ，インラインテキスト，数式など．
+       * 関数型とバリアントと直積型を持つ．
+     }
+   >
+
+   +frame-nc ?:({書く上で覚えればいいこと})<
+     +listing {
+       * インライン・テキスト≈文章の断片＝\verb(`{ }`);で囲まれた奴
+       * ブロック・テキスト≈段落の文章＝\verb(`< >`);で囲まれた広い奴
+       * 文字列≈何の付加情報もない生の文章＝\verb(`` ` ` ``);で囲まれたやつ
+       * 整数＝\verb(`1, 5, 0, -2`);など．演算は普通の \verb(`+ - * <`);などを使う．
+       * 浮動小数点数＝\verb(`1., .24, 2.5`);など．整数とは厳密に区別され，演算は後ろに\verb(`.`);を付けた
+         \verb(`+. , *.`);などを使う．
+       * 長さ＝文字のサイズや間隔を表す＝\verb(`12pt, 3mm`);とか．演算には\verb(`'`);が末尾につく．
+     }
+   >
+
+   +frame-nc ?:({型と数値にまつわるエトセトラ})<
+     +listing {
+       * 数の型が分かれている！これは素晴しい！
+         ** \TeX;は長さやカウンタを数値に流用→\emph{エラーの温床}！
+       * MLの伝統を受け継いでおり，上述の通り整数・浮動小数で違う演算子を使う必要がある．
+         ** 好みの問題（私はHaskellerなので数値の演算はオーバーロードしたいが，それはそれでつらい）
+       * リスト型や\verb(`option`);型（Haskellの\verb(`Maybe`);）型などもある
+         ** これも\TeX;では項書き換えで頑張るしかない
+     }
+   >
+
+   +frame-nc ?:({エラー例})<
+     +console?:(8pt)(```
+     ! [Type Error] at line 18, character 31 to line 20, character 5:
+    this expression has type
+      (|keywords : string list|),
+    but is expected of type
+      (|keywords : string list; primitives : string list|).
+    This constraint is required by the expression
+    at line 15, character 6 to line 17, character 9.
+     ```);
+
+     +p-center{（ちゃんとバリアントの部分型付けもやってくれる）}
+   >
+
+  +frame-nc ?:({とはいえ\SATySFi;も発展途上})<
+    +listing {
+      * フォントと文字情報のマップには未対応（これから）
+          ** 文字のコピーや検索はまだできない
+      * 一部フォント（ヒラギノ，Latin Modern等）扱いやページ送り\hcode(Highlite.default-coloring)(Highlite.satysfi-syntax)(`clear-page`);にバグ
+      * ブロック埋めるやつやパターン網羅性チェックとか欲しい
+      * （コンパイラを拡張する時に構文木が型付きだと嬉しい）
+      * （\sout{ML-like構文が嫌い！Haskell風にしろ！てか処理系もHaskellで書かせろ！}）
+    }
+  >
+
+  +frame-nc ?:({まとめ})<
+    +listing{
+      * \SATySFi;は\LaTeX;のような組版言語
+         ** 関数型言語で，項書換え系の\TeX;族より拡張が容易
+         ** このスライドの機能も大枠は半日，機能は三日で作れた
+         ** エラーメッセージもわかりやすい（一部未対応）
+      * まだまだ発展途上
+         ** 構文の説明がもう少しほしい
+         ** 機能は足りないけど開発者は意欲的
+         ** 緩やかなコミュニティが形成されつつある
+         ** 貢献するなら今！
+    }
+  >
+
+  +frame-nc <
+    +p-center{\fontsize(45pt){御清聴}}
+    +p-center{\fontsize(45pt){ありがとう}}
+    +p-center{\fontsize(45pt){ございました}}
+  >
+ >
+>

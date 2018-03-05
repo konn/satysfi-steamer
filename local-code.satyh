@@ -1,0 +1,154 @@
+@require: list
+@require: color
+@require: gr
+@import: decoset
+@import: highlite
+@require: vdecoset
+
+module LocalCode : sig
+
+  direct \code :[inline-text] inline-cmd
+  direct \meta :[math] inline-cmd
+  direct +code : [length?; string] block-cmd
+  direct +hcode : [length?; Highlite.coloring; Highlite.syntax; string] block-cmd
+  direct +console : [length?; string] block-cmd
+
+end = struct
+
+  let code-fill-color = (RGB(0.975, 0.975, 1.))
+  let code-stroke-color = (RGB(0., 0., 0.25))
+  let console-fill-color = (Gray(0.25))
+
+  let decoset-code =
+    VDecoSet.simple-frame 1pt code-stroke-color code-fill-color
+
+  let dummy _ =
+    let strokef = stroke 1pt code-stroke-color in
+    let gr-back x y w d h =
+      fill code-fill-color (Gr.rectangle (x, y -' d) (x +' w, y +' h))
+    in
+    let decoS (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.rectangle (x, y -' d) (x +' w, y +' h));
+      ]
+    in
+    let decoH (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.poly-line (x, y -' d) [(x, y +' h); (x +' w, y +' h); (x +' w, y -' d);])
+      ]
+    in
+    let decoM (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.line (x, y -' d) (x, y +' h));
+        strokef (Gr.line (x +' w, y -' d) (x +' w, y +' h));
+      ]
+    in
+    let decoT (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.poly-line (x, y +' h) [(x, y -' d); (x +' w, y -' d); (x +' w, y +' h)])
+      ]
+    in
+      (decoS, decoH, decoM, decoT)
+
+
+  let decoset-console =
+    let deco (x, y) w h d =
+      [ fill console-fill-color (Gr.rectangle (x, y -' d) (x +' w, y +' h)) ]
+    in
+      (deco, deco, deco, deco)
+
+
+  let code-scheme : length option -> decoset -> coloring -> syntax -> context -> string -> block-boxes      = fun  msize decoset coloring syntax ctx code -> (
+      let pads = (5pt, 5pt, 5pt, 5pt) in
+      let size =
+        match msize with
+        | Some(size) -> size
+        | None -> get-font-size ctx in
+      let ctxSize = ctx |> set-font-size size in
+      block-frame-breakable ctxSize pads decoset (fun ctx -> (
+        let fontsize = get-font-size ctx in
+        let charwid = get-natural-width (read-inline ctx {0}) in
+        let ctx-code =
+          ctx |> set-font Latin (`Menlo`, 1., 0.)
+              |> set-font Kana  (`Osaka`, .88, 0.)
+              |> set-font HanIdeographic  (`Osaka`, .88, 0.)
+              |> set-space-ratio (charwid /' fontsize)
+        in
+   
+        let lstraw = split-into-lines code in
+        let lst =
+          match lstraw with
+          | []        -> lstraw
+          | x :: []   -> lstraw
+          | _ :: tail -> tail
+        in
+        let ib-code =
+          lst |> List.fold-left-adjacent (fun ibacc (i, s) _ optnext -> (
+            let ib-last =
+              match optnext with
+              | Some(_) -> inline-fil ++ discretionary 0 (inline-skip ((get-text-width ctxSize) *' 2.)) inline-nil inline-nil
+              | None    -> inline-fil
+            in
+            let ib =
+              inline-skip (charwid *' (float i))
+                ++ Highlite.highlight ctx-code coloring syntax s
+                ++ ib-last
+            in
+              ibacc ++ ib
+          )) inline-nil
+        in
+          line-break true true ctx ib-code
+      )))
+
+
+  let-block ctx +code ?:size code =
+    code-scheme size decoset-code Highlite.default-coloring Highlite.empty-syntax ctx code
+
+  let-block ctx +hcode ?:size ?:mcol ?:msynt code =
+    let col = match mcol with
+              | Some(col) -> col
+              | None      -> Highlite.default-coloring in
+    let synt = match msynt with
+               | Some(syn) -> syn
+               | None      -> Highlite.satysfi-syntax in
+    code-scheme size decoset-code col synt ctx code
+
+  let-block ctx +console ?:size code =
+    let coloring = Highlite.make-simple-theme Color.white in
+    code-scheme
+      size
+      decoset-console
+      coloring
+      Highlite.empty-syntax
+      ctx
+      code
+
+  let name-context ctx =
+    ctx |> set-dominant-narrow-script Latin
+        |> set-font Latin (`Junicode`, 1., 0.)
+        |> set-text-color Color.red
+
+  let-inline ctx \meta m =
+    let ctx-meta =
+      ctx |> set-text-color Color.orange
+          |> set-font Latin Steamer.font-latin-italic
+    in
+      embed-math ctx-meta m
+
+  let-inline ctx \code inner =
+    let pads-code = (2pt, 2pt, 2pt, 2pt) in
+    let decoset-code = DecoSet.rectangle-round-fill 4pt 2pt (Color.gray 0.9) in
+    let ctx-code =
+      name-context ctx |> set-math-command (command \meta)
+    in
+    let ib-frame =
+      inline-frame-breakable pads-code decoset-code
+        (read-inline ctx-code inner)
+    in
+      script-guard Latin ib-frame
+
+end

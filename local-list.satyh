@@ -1,0 +1,16 @@
+module LocalList : sig
+  val fold-right: ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
+  val fold-right-1: ('a -> 'a -> 'a) -> 'a list -> 'a
+
+  val any: ('a -> bool) -> 'a list -> bool
+end = struct
+  let-rec fold-right
+    | f y []        = y
+    | f y (x :: xs) = f x (fold-right f y xs)
+
+  let-rec fold-right-1
+   | f (x :: []) = x
+   | f (x :: xs) = f x (fold-right-1 f xs)
+
+  let any p = fold-right (fun l b -> p l || b) false
+end

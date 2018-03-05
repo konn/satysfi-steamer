@@ -1,0 +1,63 @@
+@require: list
+@require: gr
+
+module Itemize : sig
+
+  % type description
+
+  direct +listing : [itemize] block-cmd
+  % direct +description: [description] block-cmd
+
+end = struct
+  type description = Desc of inline-boxes * inline-boxes
+
+  let (+++>) = List.fold-left (+++)
+
+  let blue = Color.rgb (38. /. 255.) (29. /. 255.) (163. /. 255.)
+  let item-indent = 20pt
+
+
+  let bullet depth color (x, y) =
+    let yc = y +' 3pt in
+    let xl = x in
+    let xr = x +' 4pt in
+    let yu = yc +' 2pt in
+    let yd = yc -' 2pt in
+    let r = 2pt in
+    let tria = start-path (xl, yu)
+            |> line-to (xr, yc)
+            |> line-to (xl, yd)
+            |> close-with-line in
+    let circ =
+        let cx = x +' 4pt in
+        let cy = y +' 4pt in
+        let r = 2pt in
+        Gr.circle (cx, cy) r in
+    let path = if depth mod 2 == 0 then circ else tria
+    in [ fill color path; ]
+
+
+  let-rec item : context -> int -> itemize -> block-boxes
+    | ctx depth (Item(parent, children)) =
+        let color = blue in
+        let br-bullet = (inline-graphics 8pt 8pt 0pt (bullet depth color)) ++ (inline-skip 8pt) in
+        let bullet-width = get-natural-width br-bullet in
+        let parent-indent = item-indent *' (float depth) in
+        let br-parent =
+          embed-block-top ctx ((get-text-width ctx) -' parent-indent -' bullet-width) (fun ctx ->
+            form-paragraph ctx ((read-inline ctx parent) ++ inline-fil)
+          )
+        in
+        let bc-parent =
+          form-paragraph ctx
+            ((inline-skip parent-indent) ++ br-bullet ++ br-parent)
+        in
+        let bclst-children = List.map (item ctx (depth + 1)) children in
+          bc-parent +++> bclst-children
+
+
+  let-block ctx +listing (Item(_, itmzlst)) =
+    let bclst = List.map (item ctx 0) itmzlst in
+      block-nil +++> bclst
+
+end
