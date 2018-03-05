@@ -28,6 +28,7 @@ module PEG : sig
   val choices         : ('a peg) list -> 'a peg
   val append          : 'a peg -> 'a peg -> 'a peg
   val cat             : ('a peg) list -> 'a peg
+  val regexp          : regexp -> 'a peg
 
   val alpha           : 'a peg
   val digit           : 'a peg
@@ -55,6 +56,7 @@ end = struct
   | Choices       of ('a peg) list
   | Cat           of ('a peg) list
   | NotFollowedBy of 'a peg
+  | RegExp        of regexp
   | Alpha
   | Digit
   | AlphaNum
@@ -126,6 +128,7 @@ end = struct
   let alpha = Alpha
   let digit = Digit
   let alphanum = AlphaNum
+  let regexp re  = RegExp(re)
   let char-but p = append (not-followed-by p) any-char
   let spaces  = many (in-class (string-unexplode [9; 10; 12; 32]))
   let spaces1 = some (in-class (string-unexplode [9; 10; 12; 32]))
@@ -172,11 +175,10 @@ end = struct
   % let pp-peg-with = pp-peg-with-prec unary-fixity
   % let pp-peg = pp-peg-with (fun a -> `_`)
 
-
   let-rec peg-scan
-    | rules (Alpha) input = peg-scan rules (in-class `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`) input
-    | rules (Digit) input = peg-scan rules (in-class `0123456789`) input
-    | rules (AlphaNum) input = peg-scan rules (in-class `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`) input
+    | rules (Alpha) input = peg-scan rules (regexp (regexp-of-string `[a-zA-Z]`)) input
+    | rules (Digit) input = peg-scan rules (regexp (regexp-of-string `[0-9]`)) input
+    | rules (AlphaNum) input = peg-scan rules (regexp (regexp-of-string `[a-zA-Z0-9]`)) input
     | rules (NotFollowedBy(p)) input =
        (match peg-scan rules p input with
        | None -> Some(TagStr(None, string-empty, []), input)
@@ -232,6 +234,7 @@ end = struct
       | None -> Some(TagStr(None, string-empty, []), input)
       | Some(tstr, r) -> Some(TagStr(None, untag tstr, [tstr]), r)
       )
+    | rules (Choices([])) input = None
     | rules (Choices(ps)) input =
       let mans = LocalList.fold-right option-union None
                  (List.map (fun p -> peg-scan rules p input) ps)
@@ -255,4 +258,8 @@ end = struct
        if string-length input == 0
        then Some(TagStr(None, string-empty, []), input)
        else None
+    | rules (RegExp re) input =
+       match string-scan re input with
+       | Some(ans, rest) -> Some(TagStr(None, ans, []), rest)
+       | None -> None
 end
