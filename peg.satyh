@@ -1,0 +1,203 @@
+@require: list
+
+module PEG : sig
+
+  type 'a peg
+  type 'a tagged-string
+
+  val untag              : 'a tagged-string -> string
+  val view-tagged-string : 'a tagged-string -> 'a option * string * ('a tagged-string) list
+  val split-into-tags    : 'a tagged-string -> ('a option * string) list
+
+  val rule            : 'a -> 'a peg
+  val epsilon         : 'a peg
+  val fail            : 'a peg
+  val lookahead       : 'a peg -> 'a peg
+  val string          : string -> 'a peg
+  val in-class        : string -> 'a peg
+  val not-in-class    : string -> 'a peg
+  val not-followed-by : 'a peg -> 'a peg
+  val any-char        : 'a peg
+  val optional        : 'a peg -> 'a peg
+  val many            : 'a peg -> 'a peg
+  val some            : 'a peg -> 'a peg
+  val choice          : 'a peg -> 'a peg -> 'a peg
+  val choices         : ('a peg) list -> 'a peg
+  val append          : 'a peg -> 'a peg -> 'a peg
+  val cat             : ('a peg) list -> 'a peg
+
+  val alpha           : 'a peg
+  val digit           : 'a peg
+  val alphanum        : 'a peg
+  val eos             : 'a peg
+  val eol             : 'a peg   % CR, LF or End-of-String
+  val char-but        : 'a peg -> 'a peg
+  val spaces          : 'a peg
+  val spaces1         : 'a peg
+
+  % val peg-match     : peg -> string -> bool
+  % val peg-search    : peg -> string -> int -> int option
+  val peg-scan : ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
+
+end = struct
+
+  type 'a peg =
+    NonTerminal of 'a
+  | AnyChar     of unit
+  | Fail        of unit
+  | Epsilon     of unit
+  | Lookahead   of 'a peg
+  | String      of string
+  | InClass     of string
+  | Optional    of 'a peg
+  | Many        of 'a peg
+  | Choices     of ('a peg) list
+  | Cat         of ('a peg) list
+  | EOS         of unit
+
+  type 'a tagged-string =
+       TagStr of 'a option * string * ('a tagged-string) list
+
+  let untag
+  | (TagStr(ma , str , lst)) = str
+
+  let view-tagged-string
+  | (TagStr(ma, str , lst)) = (ma, str, lst)
+
+  let is-some s =
+    match s with
+    | Some(a) -> true
+    | None    -> false
+
+  let-rec split-into-tags
+  | (TagStr(None, str, lst)) =
+    let go l (b, rs) =
+        let ls = split-into-tags l in
+        let nontriv = LocalList.any (fun (a, b) -> is-some a) ls in 
+        (b || nontriv , List.append ls rs)
+    in
+    let (q, bs) = LocalList.fold-right go (false, []) lst in
+    if q then bs else [(None , str)]
+  | (TagStr(Some(b), str, lst)) = [(Some(b), str)]
+
+  let eos = EOS
+  let any-char = AnyChar
+  let rule a = NonTerminal(a)
+  let fail   = Fail
+  let epsilon = Epsilon
+  let string str = String(str)
+  let in-class cls = InClass(cls)
+  let lookahead p = Lookahead(p)
+  let optional re = Optional(re)
+  let many re = Many(re)
+  let some re = Cat([re ; Many re])
+  let choices ls = Choices(ls)
+  let choice l r = choices [l ; r]
+  let cat ps     = Cat(ps)
+  let append l r = Cat([l ; r])
+  let not-followed-by pg = choice (append (lookahead pg) fail) epsilon
+  let not-in-class str = append (not-followed-by (in-class str)) any-char
+  let eol = choice (in-class (string-unexplode [10 ; 13])) eos
+  let alpha = in-class `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`
+  let digit = in-class `0123456789`
+  let alphanum = in-class `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`
+  let char-but p = append (not-followed-by p) any-char
+  let spaces  = many (in-class (string-unexplode [9; 10; 12; 32]))
+  let spaces1 = some (in-class (string-unexplode [9; 10; 12; 32]))
+
+  let string-empty = string-unexplode []
+
+  let-rec string-any p str =
+    if string-length str == 0
+    then false
+    else if string-same p (string-sub str 0 1)
+    then true
+    else string-any p (string-sub str 1 (string-length str - 1))
+
+  let split-at pos str =
+      let len = string-length str in
+      if pos <= 0
+      then (string-empty, str)
+      else if len < pos
+      then (str, string-empty)
+      else (string-sub str 0 pos, string-sub str pos (len - pos))
+
+  let-rec option-union
+  | (None)    l = l
+  | (Some(a)) r = Some(a)
+
+  let-rec peg-scan
+  | rules (NonTerminal(b)) input =
+    (match peg-scan rules (rules b) input with
+    | None -> let () = display-message `Non-terminal mismatch` in None
+    | Some(TagStr(m, str, chs), rest) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), rest)
+    )
+  | rules (AnyChar)        input =
+    if string-length input == 0
+    then None
+    else let (c, rest) = split-at 1 input
+         in Some(TagStr(None, c, []), rest)
+  | rules (Fail)           input = None
+  | rules (Epsilon)        input = Some(TagStr(None, string-empty, []), input)
+  | rules (Cat(ps))   input =
+    let go m p =
+        (match m with
+        | None -> None
+        | Some(acc, str, chs) ->
+           (match peg-scan rules p str with
+           | None -> None
+           | Some(ch, rest) -> Some(acc ^ untag ch , rest, ch :: chs)
+           )
+        )
+    in (match List.fold-left go (Some(string-empty, input, [])) ps with
+       | None -> None
+       | Some(txt, rest, chs) -> Some(TagStr(None, txt, chs), rest)
+       )
+  | rules (Lookahead(p)) input =
+     (match peg-scan rules p input with
+      | Some(tstr, r) -> Some(TagStr(None, string-empty, []), input)
+      | None       -> None
+      )
+  | rules (String(str)) input =
+    if string-length input < string-length str  
+    then None
+    else let (lh, rh) = split-at (string-length str) input in
+    if string-same lh str
+    then Some(TagStr(None, str, []), rh)
+    else None
+  | rules (InClass(str)) input =
+    if string-length input == 0
+    then None
+    else let (c, rest) = split-at 1 input
+         in if string-any c str
+         then Some(TagStr(None, c, []), rest)
+         else None
+  | rules (Optional(p)) input =
+    (match peg-scan rules p input with
+    | None -> Some(TagStr(None, string-empty, []), input)
+    | Some(tstr, r) -> Some(TagStr(None, untag tstr, [tstr]), r)
+    )
+  | rules (Choices(ps)) input =
+    let mans = LocalList.fold-right option-union None
+               (List.map (fun p -> peg-scan rules p input) ps)
+    in (match mans with
+       | None -> None
+       | Some(tstr, rest) -> Some(TagStr(None, untag tstr, [tstr]), rest)
+       )
+  | rules (Many(p)) input =
+    if string-length input == 0
+    then Some(TagStr(None, string-empty, []), input)
+    else
+    (match peg-scan rules p input with
+    | None -> Some(TagStr(None, string-empty, []), input)
+    | Some(c, r) ->
+      (match peg-scan rules (Many(p)) r with
+      | None -> Some(TagStr(None, untag c, [c]), r)
+      | Some(TagStr(z, str, chs), s) ->
+         Some(TagStr(None, untag c ^ str, c :: chs), s)
+      ))
+  | rules (EOS) input =
+     if string-length input == 0
+     then Some(TagStr(None, string-empty, []), input)
+     else None
+end

@@ -1,0 +1,40 @@
+@import: local-list
+% Naive (unbalanced) binary heap
+module IntMap : sig
+  type 'a intmap
+
+  val singleton : int -> 'a -> 'a intmap
+  val empty     : 'a intmap
+  val insert    : int -> 'a -> 'a intmap -> 'a intmap
+  val from-list : (int * 'a) list -> 'a intmap
+  val lookup    : int -> 'a intmap -> 'a option
+
+end = struct
+  type 'a intmap =
+  | Branch of 'a intmap * (int * 'a) * 'a intmap
+  | Leaf
+
+  let empty = Leaf
+  let singleton i a = Branch(Leaf, (i, a), Leaf)
+
+  let-rec insert
+  | i a (Branch(l, (j, b), r)) =
+      if i == j
+      then Branch(l, (i, a), r)
+      else if i < j
+      then Branch(insert i a l, (j, b), r)
+      else Branch(l, (j, b), insert i a r)
+  | i a (Leaf) = Branch(Leaf, (i, a), Leaf)
+
+  let from-list =
+    LocalList.fold-right (fun (i , a) -> insert i a) empty
+
+  let-rec lookup
+  | i (Leaf) = None
+  | i (Branch(l, (j, a), r)) =
+      if i == j
+      then Some(a)
+      else if i < j
+      then lookup i l
+      else lookup i r
+end

@@ -5,16 +5,31 @@
 @require: vdecoset
 @import: decoset
 @import: local-list
+@import: peg
 
 module Highlite : sig
 
   type syntax
+  type syntax-2
   type coloring
+  type token
   val highlight      : context -> coloring -> syntax -> string -> inline-boxes
   val empty-syntax   : syntax
+  val empty-syntax-2 : syntax-2
   val satysfi-syntax : syntax
   val default-coloring : coloring
   val make-simple-theme : color -> coloring
+  val build-peg : syntax-2 -> token -> token PEG.peg
+  val satysfi-syntax-2 : syntax-2
+  val parse-syntax : syntax-2 -> string -> (token PEG.tagged-string * string) option
+
+  val comment   : token 
+  val keyword   : token 
+  val primitive : token 
+  val string    : token 
+  val number    : token 
+  val program   : token 
+  val commandR  : token 
 
   direct \code :[inline-text] inline-cmd
   direct \meta :[math] inline-cmd
@@ -24,6 +39,26 @@ module Highlite : sig
   direct +console : [length?; string] block-cmd
 
 end = struct
+  type token
+    = Keyword
+    | Primitive
+    | Command
+    | String
+    | Number
+    | Normal
+    | Comment
+    | Spaces
+    | Program
+
+  let keyword   = Keyword
+  let primitive = Primitive
+  let commandR  = Command
+  let string    = String
+  let number    = Number
+  let normal    = Normal
+  let comment   = Comment
+  let program   = Program
+
   type syntax =
       (| keywords   : string list 
        ; primitives : string list 
@@ -31,6 +66,110 @@ end = struct
        ; string     : string list 
        ; number     : string list 
        |)
+
+  type syntax-2 =
+      (| keywords     : string list
+       ; primitives   : string list
+       ; commands     : token PEG.peg
+       ; string       : token PEG.peg
+       ; number       : token PEG.peg
+       ; comment      : token PEG.peg
+       ; symbol-chars : token PEG.peg
+       ; open-parens  : string
+       ; close-parens : string
+       |)
+
+   let empty-syntax-2 =
+      (| keywords     = []
+       ; primitives   = []
+       ; commands     = PEG.epsilon
+       ; string       = PEG.epsilon
+       ; number       = PEG.epsilon
+       ; comment      = PEG.epsilon
+       ; symbol-chars = PEG.epsilon
+       ; open-parens  = string-unexplode []
+       ; close-parens = string-unexplode []
+       |)
+ 
+ 
+  let build-peg synt tk =
+    let delim = PEG.choices [ PEG.spaces1 ; PEG.lookahead (PEG.not-followed-by synt#symbol-chars) ] in
+    let reserved str = PEG.cat [PEG.string str ; PEG.not-followed-by synt#symbol-chars; delim] in
+    let reserveds syms = PEG.choices (List.map reserved syms) in
+    let lexeme p = PEG.cat [p; delim] in
+    match tk with
+     | Keyword   -> reserveds synt#keywords
+     | Primitive -> reserveds synt#primitives
+     | Command   -> synt#commands
+     | String    -> synt#string
+     | Number    -> synt#number
+     | Normal    -> PEG.many (PEG.char-but delim)
+     % | Comment   -> PEG.cat [ PEG.cat synt#comment ; PEG.lookahead PEG.eos ] % MUST NOT TYPECHECKS!
+     | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
+     | Spaces    -> delim
+     | Program   -> PEG.cat [ PEG.spaces 
+                            ; % PEG.some
+                              (PEG.choices [ PEG.rule Comment
+                                           ; PEG.rule String
+                                           ; PEG.rule Number
+                                           ; PEG.rule Keyword
+                                           ; PEG.rule Primitive
+                                           ; PEG.rule Command
+                                           ; PEG.rule Normal
+                                          ])
+                            ; PEG.eos
+                            ]
+    
+
+  let parse-syntax synt str = PEG.peg-scan (build-peg synt) (PEG.rule Program) str
+
+  let satysfi-syntax-2 =
+    let quote = string-unexplode [96] in
+    let symb-chars = PEG.choice PEG.alphanum (PEG.string `-`) in
+    (| keywords =
+           [ `let-inline`; `let`; `let-rec`; `let-mutable`
+           ; `let-block`; `in`; `match`; `with`; `type`
+           ; `let-math`; `math`; `sig`; `structure` ; `direct`
+           ; `val`; `constraint`; `fun`; `before`; `of`
+           ; `if`; `then`; `else`; `end`; `as`; `!`; `<-`
+           ; `@import:`; `@require:`
+           ]
+     ; primitives = [ `read-inline`; `get-font-size` ; `set-font-size`
+                    ; `true`; `false` ]
+     ; commands = PEG.choices
+                [ PEG.cat [ PEG.string `\`
+                          ; PEG.some symb-chars
+                          ]
+                ; PEG.cat [ PEG.string `+`
+                          ; PEG.some symb-chars
+                          ]
+                ]
+     ; string = PEG.choices
+              [ PEG.cat
+                  [ PEG.string quote
+                  ; PEG.many (PEG.not-in-class quote)
+                  ; PEG.string quote
+                  ]
+              ]
+     ; number = PEG.choices
+                [
+                   PEG.cat
+                     [ PEG.some PEG.digit
+                     ; PEG.optional (
+                         PEG.cat [ PEG.string `.`
+                                 ; PEG.many PEG.digit]
+                       )
+                     ]
+                ; PEG.cat [ PEG.string `.`
+                          ; PEG.some PEG.digit]
+                ]
+     ; comment = PEG.cat [ PEG.string `%`
+                         ; PEG.many (PEG.char-but PEG.eos)
+                         ]
+     ; symbol-chars = PEG.choice PEG.alphanum (PEG.string `-`)
+     ; open-parens  = `({[<`
+     ; close-parens = `]})>`
+     |)
 
    type coloring =
        (| keywords   : color
