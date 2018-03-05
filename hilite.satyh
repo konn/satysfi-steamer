@@ -11,55 +11,53 @@
 
 module Hilite : sig
 
-  type syntax
+  type 'a syntax
   type coloring
-  type token
-  val pp-token       : token -> string
-  val highlight      : context -> coloring -> syntax -> string -> inline-boxes
-  val empty-syntax : syntax
+  type 'a token
+  type simple-token
+  type satysfi-aux
+  val highlight    : context -> coloring -> 'a syntax -> string -> inline-boxes
+  val empty-syntax : 'a syntax
   val default-coloring : coloring
   val make-simple-theme : color -> coloring
-  val build-peg : syntax -> token -> token PEG.peg
-  val satysfi-syntax : syntax
-  val parse-syntax : syntax -> string -> (token PEG.tagged-string * string) option
+  val build-peg : 'aux syntax ->  'aux token -> ('aux token) PEG.peg
+  val satysfi-syntax : satysfi-aux syntax
+  val parse-syntax : 'a syntax -> string -> (('a token) PEG.tagged-string * string) option
 
-  val comment   : token
-  val keyword   : token
-  val primitive : token
-  val string    : token
-  val number    : token
-  val normal    : token
-  val commandR  : token
+  val comment   : 'a token
+  val keyword   : 'a token
+  val primitive : 'a token
+  val string    : 'a token
+  val number    : 'a token
+  val normal    : 'a token
+  val commandR  : 'a token
 
   direct \code :[inline-text] inline-cmd
   direct \meta :[math] inline-cmd
-  % direct \hcode : [coloring; syntax; string] inline-cmd
+  direct \hcode : [coloring?; ('a syntax)?; string] inline-cmd
   direct +code : [length?; string] block-cmd
-  direct +hcode : [length?; coloring?; syntax?; string] block-cmd
+  direct +hcode : [length?; coloring?; ('a syntax)?; string] block-cmd
   direct +console : [length?; string] block-cmd
 
 end = struct
-  type token
-    = Keyword   of unit 
-    | Primitive of unit 
-    | Command   of unit 
-    | String    of unit 
-    | Number    of unit 
-    | Normal    of unit 
-    | Comment   of unit 
-    | Spaces    of unit 
-    | OtherChar of unit 
+  type 'a token
+    = Keyword
+    | Primitive
+    | Command
+    | String
+    | Number
+    | Normal
+    | Comment
+    | Spaces
+    | OtherChar
+    | Custom of 'a
 
-  let-rec pp-token
-    | (Keyword)   = `keyword`
-    | (Primitive) = `primitive`
-    | (Command)   = `command`
-    | (String)    = `string`
-    | (Number)    = `number`
-    | (Normal)    = `normal`
-    | (Comment)   = `comment`
-    | (OtherChar) = `otherchar`
-    | (Spaces)    = `spaces`
+  type satysfi-aux
+    = StringBody
+    | StringContent
+
+  type void = Dummy
+  type simple-token = void token
 
   let keyword   = Keyword
   let primitive = Primitive
@@ -69,19 +67,20 @@ end = struct
   let normal    = Normal
   let comment   = Comment
 
-  type syntax =
+  type 'a syntax =
       (| keywords     : string list
        ; primitives   : string list
-       ; commands     : token PEG.peg
-       ; string       : token PEG.peg
-       ; number       : token PEG.peg
-       ; comment      : token PEG.peg
-       ; symbol-chars : token PEG.peg
+       ; commands     : ('a token) PEG.peg
+       ; string       : ('a token) PEG.peg
+       ; number       : ('a token) PEG.peg
+       ; comment      : ('a token) PEG.peg
+       ; symbol-chars : ('a token) PEG.peg
        ; open-parens  : string
        ; close-parens : string
+       ; custom-rules : 'a -> ('a token) PEG.peg
        |)
 
-   let empty-syntax : syntax =
+   let empty-syntax : 'a syntax =
       (| keywords     = []
        ; primitives   = []
        ; commands     = PEG.fail
@@ -91,6 +90,7 @@ end = struct
        ; symbol-chars = PEG.fail
        ; open-parens  = LocalString.string-empty
        ; close-parens = LocalString.string-empty
+       ; custom-rules = (fun b -> PEG.fail)
        |)
 
   let build-peg : syntax -> token -> token PEG.peg
@@ -100,7 +100,6 @@ end = struct
     let reserved str = PEG.cat [PEG.string str ; PEG.not-followed-by symchar; delim] in
     let reserveds syms = PEG.choices (List.map reserved syms) in
     let lexeme p = PEG.cat [p; delim] in
-    let () = display-message (`parsing: ` ^ pp-token tk) in 
     match tk with
      | Keyword   -> reserveds synt#keywords
      | Primitive -> reserveds synt#primitives
@@ -111,6 +110,7 @@ end = struct
      | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
      | Spaces    -> delim
      | OtherChar -> PEG.char-but  symchar
+     | Custom r  -> synt#custom-rules r 
 
 
    let program-line =
@@ -130,9 +130,20 @@ end = struct
 
   let parse-syntax synt str = PEG.peg-scan (build-peg synt) program-line str
 
-  let satysfi-syntax =
-    let quote = string-unexplode [96] in
+  let satysfi-syntax : satysfi-aux syntax =
+    let quote = PEG.string (string-unexplode [96]) in
     let symb-chars = PEG.choice PEG.alphanum (PEG.string `-`) in
+    let symbol p = PEG.cat [PEG.string p; PEG.not-followed-by symb-chars] in
+    let measure = PEG.choices (List.map symbol [`pt`; `mm`; `cm`; `inch`]) in
+    let aux-rules b = 
+        (match b with
+         | StringBody ->
+             PEG.choices [ PEG.cat [quote ; PEG.rule (Custom(StringBody)); quote]
+                         ; PEG.rule (Custom(StringContent))
+                         ]
+         | StringContent ->
+             PEG.some (PEG.char-but quote)
+         ) in 
     (| keywords =
            [ `let-inline`; `let`; `let-rec`; `let-mutable`
            ; `let-block`; `in`; `match`; `with`; `type`
@@ -153,12 +164,15 @@ end = struct
                 ]
      ; string = PEG.choices
               [ PEG.cat
-                  [ PEG.string quote
-                  ; PEG.many (PEG.not-in-class quote)
-                  ; PEG.string quote
+                  [ quote
+                  ; PEG.rule (Custom(StringBody))
+                  ; quote
                   ]
               ]
-     ; number = PEG.choices
+     ; number =
+           PEG.cat
+              [ PEG.optional (PEG.cat [PEG.string `-`; PEG.spaces] )
+              ; PEG.choices
                 [
                    PEG.cat
                      [ PEG.some PEG.digit
@@ -170,12 +184,15 @@ end = struct
                 ; PEG.cat [ PEG.string `.`
                           ; PEG.some PEG.digit]
                 ]
+              ; PEG.optional measure
+              ]
      ; comment = PEG.cat [ PEG.string `%`
                          ; PEG.many (PEG.char-but PEG.eos)
                          ]
      ; symbol-chars = PEG.choice PEG.alphanum (PEG.string `-`)
      ; open-parens  = `({[<`
      ; close-parens = `]})>`
+     ; custom-rules = aux-rules
      |)
 
    type coloring =
@@ -188,15 +205,17 @@ end = struct
         ; comment    : color
         |)
 
+   let rgb r g b = RGB(float r /. 255., float g /. 255., float b /. 255. )
+
    let default-coloring =
-                 (| keywords   = RGB(141. /. 255., 0. , 235. /. 255.)
-                  ; commands   = RGB(117. /. 255., 112. /. 255. , 1.)
+                 (| keywords   = rgb 141 0 235
+                  ; commands   = rgb 117 112 255
                   ; number     = Color.orange
                   ; string     = Color.orange
                   ; primitives = Color.red
                   ; normal     = Color.black
-                  ; comment    = Color.gray(.5)
-                  |)
+                  ; comment    = rgb 160 17 17
+                  |) % |=
 
   let make-simple-theme col =
         (| keywords   = col
@@ -244,15 +263,6 @@ end = struct
     match m with
     | Some(b) -> b
     | None    -> a
-
-  let-inline ctx \hcode ?:mcol ?:msynt src =
-    let col = match mcol with
-              | Some(col) -> col
-              | None      -> default-coloring in
-    let synt = match msynt with
-               | Some(syn) -> syn
-               | None      -> satysfi-syntax in
-    highlight ctx col synt src
 
   let code-fill-color = (RGB(0.975, 0.975, 1.))
   let code-stroke-color = (RGB(0., 0., 0.25))
@@ -344,7 +354,13 @@ end = struct
       ))
 
   let-block ctx +code ?:size code =
-    code-scheme size decoset-code default-coloring empty-syntax ctx code
+    code-scheme
+      size
+      decoset-code
+      default-coloring
+      empty-syntax
+      (ctx |> set-font Latin (`Menlo`, .8, 0.))
+      code
 
   let-block ctx +hcode ?:size ?:mcol ?:msynt code =
     let col = match mcol with
@@ -352,8 +368,13 @@ end = struct
               | None      -> default-coloring in
     let synt = match msynt with
                | Some(syn) -> syn
-               | None      -> satysfi-syntax in
-    code-scheme size decoset-code col synt ctx code
+               | None      -> empty-syntax in
+    code-scheme
+      size
+      decoset-code
+      col
+      synt
+      (ctx |> set-font Latin (`Menlo`, .8, 0.)) code
 
   let-block ctx +console ?:size code =
     let coloring = make-simple-theme Color.white in
@@ -362,18 +383,19 @@ end = struct
       decoset-console
       coloring
       empty-syntax
-      ctx
+      (ctx |> set-font Latin (`Menlo`, .8, 0.))
       code
 
   let name-context ctx =
     ctx |> set-dominant-narrow-script Latin
-        |> set-font Latin (`Junicode`, 1., 0.)
+        |> set-font Latin (`Menlo`, 1., 0.)
         |> set-text-color Color.red
 
   let-inline ctx \meta m =
     let ctx-meta =
       ctx |> set-text-color Color.orange
           |> set-font Latin Steamer.font-latin-italic
+          |> set-font Latin (`Menlo`, .8, 0.)
     in
       embed-math ctx-meta m
 
@@ -381,11 +403,22 @@ end = struct
     let pads-code = (2pt, 2pt, 2pt, 2pt) in
     let decoset-code = DecoSet.rectangle-round-fill 4pt 2pt (Color.gray 0.9) in
     let ctx-code =
-      name-context ctx |> set-math-command (command \meta)
+      name-context ctx
+        |> set-math-command (command \meta)
     in
     let ib-frame =
       inline-frame-breakable pads-code decoset-code
         (read-inline ctx-code inner)
     in
       script-guard Latin ib-frame
+
+  let-inline ctx \hcode ?:mcol ?:msynt src =
+    let col = match mcol with
+              | Some(col) -> col
+              | None      -> default-coloring in
+    let synt = match msynt with
+               | Some(syn) -> syn
+               | None      -> empty-syntax in
+    highlight (ctx |> set-font Latin (`Menlo`, .8, 0.)) col synt src
+
 end
