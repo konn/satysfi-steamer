@@ -184,12 +184,12 @@ end = struct
        )
     | rules (NonTerminal(b)) input =
       (match peg-scan rules (rules b) input with
-      | None -> let () = display-message `Non-terminal mismatch` in None
+      | None -> None
       | Some(TagStr(m, str, chs), rest) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), rest)
       )
     | rules (AnyChar) input =
       if string-length input == 0
-      then let () = display-message (`No any char: "` ^ input ^ `"`) in None 
+      then None 
       else let (c, rest) = LocalString.split-at 1 input
            in Some(TagStr(None, c, []), rest)
     | rules (Fail) input = None
