@@ -1,0 +1,13 @@
+module Option : sig
+  val fmap : ('a -> 'b) -> 'a option -> 'b option
+  val from : 'a -> 'a option -> 'a
+
+end = struct
+  let-rec from
+  | a (None) = a
+  | z (Some(a)) = a
+
+  let-rec fmap
+  | f (None) = None
+  | f (Some(a)) = Some(f a)
+end
