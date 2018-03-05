@@ -25,11 +25,11 @@ module Highlite : sig
 
 end = struct
   type syntax =
-      (| keywords   : string list 
-       ; primitives : string list 
-       ; commands   : string list 
-       ; string     : string list 
-       ; number     : string list 
+      (| keywords   : string list
+       ; primitives : string list
+       ; commands   : string list
+       ; string     : string list
+       ; number     : string list
        |)
 
    type coloring =
@@ -117,14 +117,16 @@ end = struct
       let col-ctx c = ctx |> set-text-color c in
       let render c = read-inline (col-ctx c) (embed-string tok) in
       let go (th, sy) r =
-          % let () = display-message (`matching "` ^ tok ^ `" with :` ^ alternatives  sy) in 
-          if string-match (alternatives sy) tok
+          % let () = display-message (`matching "` ^ tok ^ `" with :` ^ alternatives  sy) in
+          let re = regexp-of-string (alternatives sy) in
+          if string-match re tok
           then render th
           else r
       in LocalList.fold-right go (render theme#normal) tss
 
   let highlight ctx coloring synt str =
-    let tokens = split-on-regex (string-unexplode [32]) str in
+    let re = regexp-of-string (string-unexplode [32]) in
+    let tokens = split-on-regexp re str in
     let cat l r = l ++ read-inline ctx (embed-string (string-unexplode [32])) ++ r in
     List.fold-left cat inline-nil (List.map (fun (l, r) -> colorise ctx coloring synt r) tokens)
 
@@ -199,7 +201,7 @@ end = struct
               |> set-font HanIdeographic  (`Osaka`, .88, 0.)
               |> set-space-ratio (charwid /' fontsize)
         in
-   
+
         let lstraw = split-into-lines code in
         let lst =
           match lstraw with

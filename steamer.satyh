@@ -50,8 +50,8 @@ end = struct
   let-inline ctx \insert-image w path =
     let img = load-image path in
       use-image-by-width img w
-   
-   
+
+
 
   type toc-element =
     | TOCElementSection    of string * inline-text
@@ -468,7 +468,7 @@ let title-deco =
     let () = toc-acc-ref <- (TOCElementSection(label, title)) :: !toc-acc-ref in
     let bb-inner = read-block ctx inner in bb-inner
 
-  let frame-title-deco = 
+  let frame-title-deco =
     let deco (x, y) wid hgt dpt =
       let path1 =
         let xL = x -' text-horizontal-margin in
@@ -511,7 +511,7 @@ let title-deco =
     in
     let inner-bb = read-block (ctx |> set-paragraph-margin 0pt 12pt) inner in
     let glue-height = (text-height -' get-natural-length inner-bb -' get-natural-length bb-title) *' .5 in
-    let glue-bb = make-placeholder ctx glue-height 
+    let glue-bb = make-placeholder ctx glue-height
     in bb-title
        +++ glue-bb
        +++ inner-bb

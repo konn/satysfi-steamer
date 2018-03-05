@@ -2,7 +2,7 @@
 @import: steamer
 @require: gr
 % @import: local-code
-@import: intmap
+% @import: intmap
 @import: local-math
 @import: listings-blue
 @import: highlite
@@ -111,7 +111,7 @@ Steamer.document (|
         ちなみにこのなんちゃって自動シンタックス・ハイライトも自分でつくりました．
       }
    >
-  
+
    +frame-nc ?:({コード例2：高階関数})<
       +hcode?:(10pt)(```
       let font-size-modify ctx scale inner =
