@@ -9,35 +9,6 @@
 @import: hilite
 @import: peg
 
-
-let pp-tstr-piece (mopt, str) =
-  match mopt with
-  | None -> str
-  | Some(tok) -> `<` ^ Hilite.pp-token tok ^ string-unexplode [32; 34] ^ str ^  `">`
-  in
-let pretty-result resl = match resl with
-    | (Some(trr, rest)) ->
-      let tstrs = PEG.split-into-tags trr in
-      let pret = LocalString.cat-strings (List.map pp-tstr-piece tstrs)
-      in `Some(` ^ pret ^ `,` ^ rest ^`)`
-    | (None) -> `Nothing` in
-let rules = Hilite.build-peg Hilite.empty-syntax in
-let pp-rule tok =
-     LocalString.cat-strings [ `'`;  Hilite.pp-token tok
-                             ; string-unexplode [32]; `=`; string-unexplode [32]
-                             ; PEG.pp-peg-with Hilite.pp-token (rules tok)
-                             ] in
-let display-rule tok = display-message (pp-rule tok) in 
-let () = display-rule Hilite.keyword in
-let () = display-rule Hilite.primitive in
-let () = display-rule Hilite.comment in
-let () = display-rule Hilite.commandR in
-let () = display-rule Hilite.string in
-let () = display-rule Hilite.number in
-let () = display-rule Hilite.normal in
-let () = display-message (`result: ` ^ pretty-result (Hilite.parse-syntax Hilite.satysfi-syntax ` +make-title{% naze}`)) in
-
-
 Steamer.document (|
   title = {\SATySFi;を使ってみた};
   author = {Hiromi ISHII};
