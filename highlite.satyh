@@ -23,13 +23,13 @@ module Highlite : sig
   val satysfi-syntax-2 : syntax-2
   val parse-syntax : syntax-2 -> string -> (token PEG.tagged-string * string) option
 
-  val comment   : token 
-  val keyword   : token 
-  val primitive : token 
-  val string    : token 
-  val number    : token 
-  val program   : token 
-  val commandR  : token 
+  val comment   : token
+  val keyword   : token
+  val primitive : token
+  val string    : token
+  val number    : token
+  val program   : token
+  val commandR  : token
 
   direct \code :[inline-text] inline-cmd
   direct \meta :[math] inline-cmd
@@ -108,7 +108,7 @@ end = struct
      | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
      | Spaces    -> delim
      | Program   -> PEG.cat [ PEG.spaces 
-                            ; % PEG.some
+                            ; PEG.some
                               (PEG.choices [ PEG.rule Comment
                                            ; PEG.rule String
                                            ; PEG.rule Number
