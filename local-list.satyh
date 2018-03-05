@@ -1,8 +1,10 @@
 module LocalList : sig
   val fold-right: ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
   val fold-right-1: ('a -> 'a -> 'a) -> 'a list -> 'a
+  val length: 'a list -> int
 
   val any: ('a -> bool) -> 'a list -> bool
+  val replicate : int -> 'a -> 'a list
 end = struct
   let-rec fold-right
     | f y []        = y
@@ -12,5 +14,11 @@ end = struct
    | f (x :: []) = x
    | f (x :: xs) = f x (fold-right-1 f xs)
 
+  let length = fold-right (fun _ a -> a + 1) 0
+
   let any p = fold-right (fun l b -> p l || b) false
+
+  let-rec replicate
+  | 0 a = []
+  | n a = a :: replicate (n - 1) a
 end

@@ -1,4 +1,4 @@
 Steamer: Slide Presentation in SATySFi
 =======================================
 
-NOTE: You need a [forked version](https://github.com/konn/satysfi/tree/regex) of SATySFi with regular-expression support to get `highlite.satyh` work.
+This branch tries to implement PEG parser in SATySFi and throw away regexp fork.
