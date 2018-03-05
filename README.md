@@ -1,4 +1,4 @@
 Steamer: Slide Presentation in SATySFi
 =======================================
 
-This branch tries to implement PEG parser in SATySFi and throw away regexp fork.
+NOTE: You need a [custom fork](https://github.com/konn/satysfi/tree/custom) of SATySFi with better unicode and regexp support.
