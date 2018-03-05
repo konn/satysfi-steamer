@@ -150,10 +150,35 @@ end = struct
            ; `let-math`; `math`; `sig`; `structure` ; `direct`
            ; `val`; `constraint`; `fun`; `before`; `of`
            ; `if`; `then`; `else`; `end`; `as`; `!`; `<-`
-           ; `@import:`; `@require:`
+           ; `@import:`; `@require:`; `while`; `do`; `command`
+           ; `mod`; `not`; `true`; `false`
+           ; `controls`; `and`; `cycle`
+           ; `inline-cmd`; `block-cmd`; `math-cmd`; `when`
            ]
-     ; primitives = [ `read-inline`; `get-font-size` ; `set-font-size`
-                    ; `true`; `false` ]
+     ; primitives =
+           [ `acos`; `arabic`; `asin`; `atan2`; `atan`; `bezier-to`; `block-frame-breakable`
+           ; `block-nil`; `block-skip`; `clear-page`; `close-with-bezier`; `close-with-line`
+           ; `cos`; `dashed-stroke`; `discretionary`; `display-message`; `draw-text`
+           ; `embed-block-bottom`; `embed-block-top`; `embed-math`; `embed-string`; `fill`
+           ; `float`; `font`; `get-axis-height`; `get-cross-reference`; `get-dominant-narrow-script`
+           ; `get-dominant-wide-script`; `get-font-size`; `get-font`; `get-initial-context`
+           ; `get-language`; `get-natural-length`; `get-natural-width`; `get-text-color`
+           ; `get-text-width`; `hook-page-break`; `inline-fil`; `inline-frame-breakable`
+           ; `inline-frame-fixed`; `inline-frame-inner`; `inline-frame-outer`; `inline-glue`
+           ; `inline-graphics`; `inline-nil`; `inline-skip`; `line-break`; `line-stack-bottom`
+           ; `line-stack-top`; `line-to`; `load-image`; `load-pdf-image`; `math-big-char-with-kern`
+           ; `math-big-char`; `math-char-class`; `math-char-with-kern`; `math-char`; `math-color`
+           ; `math-concat`; `math-frac`; `math-group`; `math-lower`; `math-paren`; `math-radical`
+           ; `math-sub`; `math-sup`; `math-upper`; `math-variant-char`; `page-break`; `read-block`
+           ; `read-inline`; `regexp-of-string`; `register-cross-reference`; `round`; `script-guard`
+           ; `set-dominant-narrow-script`; `set-dominant-wide-script`; `set-font-size`; `set-font`
+           ; `set-hyphen-penalty`; `set-language`; `set-leading`; `set-manual-rising`; `set-math-command`
+           ; `set-math-font`; `set-math-variant-char`; `set-paragraph-margin`; `set-space-ratio`
+           ; `set-text-color`; `sin`; `split-into-lines`; `split-on-regexp`; `start-path`
+           ; `string-byte-length`; `string-length`; `string-match`; `string-same`; `string-scan`
+           ; `string-sub-bytes`; `string-sub`; `string-unexplode`; `stroke`; `tabular`; `tan`
+           ; `terminate-path`; `text-in-math`; `unite-path`; `use-image-by-width`
+           ]
      ; commands = PEG.choices
                 [ PEG.cat [ PEG.string `\`
                           ; PEG.some symb-chars

@@ -9,6 +9,15 @@
 @import: hilite
 @import: peg
 
+let-block cxt +scode ?:msize inner =
+  read-block cxt (match msize with
+  | None -> ('<+hcode?*?*?:(Hilite.satysfi-syntax)(inner);>)
+  | Some(size) -> '<+hcode?:(size)?*?:(Hilite.satysfi-syntax)(inner);>)
+
+let-inline cxt \scode inner =
+  read-inline cxt {\hcode?*?:(Hilite.satysfi-syntax)(inner);}
+in
+
 Steamer.document (|
   title = {\SATySFi;を使ってみた};
   author = {Hiromi ISHII};
@@ -57,14 +66,15 @@ Steamer.document (|
     >
 
    +frame-nc ?:({コード例})<
-     +hcode(```
+     +scode(```
           +listing {
             * 石井大海（いしい・ひろみ）
             * 筑波大数学専攻 博士後期二年
             * 今日の話：\emph{\SATySFi;}
-              (\url(`https://github.com/...`);)
+              (\url(``https://github.com/...``);)
                 ** 諏訪敬之氏が開発中の\emph{新組版システム}．
                 ** \LaTeX;やInDesignの競合
+                % This is a comment
           }
      ```);
    >
@@ -102,7 +112,7 @@ Steamer.document (|
    >
 
    +frame-nc ?:({コード例})<
-      +hcode?:(10pt)(```
+      +scode?:(10pt)(```
       let-inline ctx \textsuperscript inner =
       let ctx-sscr =
          ctx |> set-font-size (get-font-size ctx *' .7)
@@ -115,7 +125,7 @@ Steamer.document (|
    >
 
    +frame-nc ?:({コード例2：高階関数})<
-      +hcode?:(10pt)(```
+      +scode?:(10pt)(```
       let font-size-modify ctx scale inner =
         let ctx-size =
           ctx |> set-font-size (get-font-size ctx *' scale)
@@ -140,13 +150,13 @@ Steamer.document (|
 
    +frame-nc ?:({書く上で覚えればいいこと})<
      +listing {
-       * インライン・テキスト≈文章の断片＝\verb(`{ }`);で囲まれた奴
-       * ブロック・テキスト≈段落の文章＝\verb(`< >`);で囲まれた広い奴
-       * 文字列≈何の付加情報もない生の文章＝\verb(`` ` ` ``);で囲まれたやつ
-       * 整数＝\hcode(`1, 5, 0, -2`);など．演算は普通の \hcode(`+ - * <`);などを使う．
-       * 浮動小数点数＝\hcode(`1., .24, 2.5`);など．整数とは厳密に区別され，演算は後ろに\hcode(`.`);を付けた
-         \hcode(`+. , *.`);などを使う．
-       * 長さ＝文字のサイズや間隔を表す＝\hcode(`12pt, 3mm`);とか．演算には\hcode(`'`);が末尾につく．
+       * インライン・テキスト≈文章の断片＝\scode(`{ }`);で囲まれた奴
+       * ブロック・テキスト≈段落の文章＝\scode(`< >`);で囲まれた広い奴
+       * 文字列≈何の付加情報もない生の文章＝\scode(`` ` ` ``);で囲まれたやつ
+       * 整数＝\scode(`1, 5, 0, -2`);など．演算は普通の \scode(`+ - * <`);などを使う．
+       * 浮動小数点数＝\scode(`1., .24, 2.5`);など．整数とは厳密に区別され，演算は後ろに\scode(`.`);を付けた
+         \scode(`+. , *.`);などを使う．
+       * 長さ＝文字のサイズや間隔を表す＝\scode(`12pt, 3mm`);とか．演算には\scode(`'`);が末尾につく．
      }
    >
 
@@ -156,7 +166,7 @@ Steamer.document (|
          ** \TeX;は長さやカウンタを数値に流用→\emph{エラーの温床}！
        * MLの伝統を受け継いでおり，上述の通り整数・浮動小数で違う演算子を使う必要がある．
          ** 好みの問題（私はHaskellerなので数値の演算はオーバーロードしたいが，それはそれでつらい）
-       * リスト型や\verb(`option`);型（Haskellの\verb(`Maybe`);）型などもある
+       * リスト型や\scode(`option`);型（Haskellの\verb(`Maybe`);）型などもある
          ** これも\TeX;では項書き換えで頑張るしかない
      }
    >
@@ -179,7 +189,7 @@ Steamer.document (|
     +listing {
       * フォントと文字情報のマップには未対応（これから）
           ** 文字のコピーや検索はまだできない
-      * 一部フォント（ヒラギノ，Latin Modern等）扱いやページ送り\verb(`clear-page`);にバグ
+      * 一部フォント（ヒラギノ，Latin Modern等）扱いやページ送り\scode(`clear-page`);にバグ
       * ブロック埋めるやつやパターン網羅性チェックとか欲しい
       * （コンパイラを拡張する時に構文木が型付きだと嬉しい）
       * （\sout{ML-like構文が嫌い！Haskell風にしろ！てか処理系もHaskellで書かせろ！}）
