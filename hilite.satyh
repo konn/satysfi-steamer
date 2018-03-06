@@ -131,7 +131,19 @@ end = struct
              ; PEG.eos
              ]
 
-  let parse-syntax synt str = PEG.peg-scan (build-peg synt) program-line str
+  let-rec number-tok
+  | (Keyword)   = Some(0)
+  | (Primitive) = Some(1)
+  | (Command)   = Some(2)
+  | (String)    = Some(3)
+  | (Number)    = Some(4)
+  | (Normal)    = Some(5)
+  | (Comment)   = Some(6)
+  | (Spaces)    = Some(7)
+  | (OtherChar) = Some(8)
+  | z         = None
+
+  let parse-syntax synt str = PEG.peg-scan ?:(number-tok) (build-peg synt) program-line str
 
   let satysfi-syntax : satysfi-aux syntax =
     let quote = PEG.string (string-unexplode [96]) in

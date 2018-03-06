@@ -1,5 +1,7 @@
 @require: list
 @import: local-string
+@import: intmap
+@import: option
 
 module PEG : sig
 
@@ -28,7 +30,7 @@ module PEG : sig
   val choices         : ('a peg) list -> 'a peg
   val append          : 'a peg -> 'a peg -> 'a peg
   val cat             : ('a peg) list -> 'a peg
-  val regexp          : regexp -> 'a peg
+  val regexp          : string -> 'a peg
 
   val alpha           : 'a peg
   val digit           : 'a peg
@@ -39,7 +41,7 @@ module PEG : sig
   val spaces          : 'a peg
   val spaces1         : 'a peg
 
-  val peg-scan : ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
+  val peg-scan : ('a -> int option)? -> ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
 
 end = struct
 
@@ -54,9 +56,9 @@ end = struct
   | Optional      of 'a peg
   | Many          of 'a peg
   | Choices       of ('a peg) list
-  | Cat           of ('a peg) list
+  | Append        of 'a peg * 'a peg
   | NotFollowedBy of 'a peg
-  | RegExp        of regexp
+  | RegExp        of string
   | Alpha
   | Digit
   | AlphaNum
@@ -105,7 +107,8 @@ end = struct
     let (c, rest) = LocalString.split-at 1 str
     in escape-specials-aux (acc ^ escape-onestep c) rest
 
-  let escape-specials = escape-specials-aux LocalString.string-empty
+  let empstr = LocalString.string-empty
+  let escape-specials = escape-specials-aux 
 
   let eos = EOS
   let any-char = AnyChar
@@ -117,11 +120,11 @@ end = struct
   let lookahead p = Lookahead(p)
   let optional re = Optional(re)
   let many re = Many(re)
-  let some re = Cat([re ; Many re])
+  let some re = Append(re , Many re)
   let choices ls = Choices(ls)
   let choice l r = choices [l ; r]
-  let cat ps     = Cat(ps)
-  let append l r = Cat([l ; r])
+  let append l r = Append(l, r)
+  let cat ps     = LocalList.fold-right append epsilon ps
   let not-followed-by pg = NotFollowedBy(pg)
   let not-in-class str = append (not-followed-by (in-class str)) any-char
   let eol = choice (in-class (string-unexplode [10 ; 13])) eos
@@ -153,113 +156,148 @@ end = struct
 
   let paren show s = if show then `(` ^ s ^ `)` else s
 
-  % let-rec pp-peg-with-prec
-  % | d pp (Alpha)            = `[a-zA-Z]`
-  % | d pp (Digit)            = `[0-9]`
-  % | d pp (AlphaNum)         = `\w`
-  % | d pp (NotFollowedBy(p)) = `(?!` ^ pp-peg-with-prec unary-fixity pp p ^ `)`
-  % | d pp (NonTerminal(b)) = `'` ^ pp b
-  % | d pp (AnyChar) = `.`
-  % | d pp (Fail) = `_|_`
-  % | d pp (Epsilon) = ` `
-  % | d pp (Lookahead p) = `(?=` ^ pp-peg-with-prec unary-fixity pp p ^ `)`
-  % | d pp (String str)  = str
-  % | d pp (InClass cls) = `[` ^ cls ^ `]` 
-  % | d pp (Optional p)  = pp-peg-with-prec post-fixity pp p ^ `?`
-  % | d pp (Many p)      = pp-peg-with-prec post-fixity pp p ^ `*`
-  % | d pp (Choices []) = `_|_`
-  % | d pp (Choices alt) = paren (d > choice-fixity) (LocalString.join-strings `/` (List.map (pp-peg-with-prec choice-fixity pp) alt))
-  % | d pp (Cat ps) = paren (d > cat-fixity) (LocalString.cat-strings (List.map (pp-peg-with-prec cat-fixity pp) ps))
-  % | d pp (EOS)      = `$`
+  let (>>=) = Option.bind
+  let (=<<) f a = Option.bind a f
+  let (<&>) ma f = Option.fmap f ma
 
-  % let pp-peg-with = pp-peg-with-prec unary-fixity
-  % let pp-peg = pp-peg-with (fun a -> `_`)
+  let-rec pp-peg-with-prec
+  | d pp (RegExp re)        = `/` ^ re ^ `/`
+  | d pp (Alpha)            = `[a-zA-Z]`
+  | d pp (Digit)            = `[0-9]`
+  | d pp (AlphaNum)         = `\w`
+  | d pp (NotFollowedBy(p)) = `(?!` ^ pp-peg-with-prec unary-fixity pp p ^ `)`
+  | d pp (NonTerminal(b)) = `'` ^ pp b
+  | d pp (AnyChar) = `.`
+  | d pp (Fail) = `_|_`
+  | d pp (Epsilon) = ` `
+  | d pp (Lookahead p) = `(?=` ^ pp-peg-with-prec unary-fixity pp p ^ `)`
+  | d pp (String str)  = str
+  | d pp (InClass cls) = `[` ^ cls ^ `]` 
+  | d pp (Optional p)  = pp-peg-with-prec post-fixity pp p ^ `?`
+  | d pp (Many p)      = pp-peg-with-prec post-fixity pp p ^ `*`
+  | d pp (Choices []) = `_|_`
+  | d pp (Choices alt) = paren (d > choice-fixity) (LocalString.join-strings `/` (List.map (pp-peg-with-prec choice-fixity pp) alt))
+  | d pp (Append(l, r)) =
+      paren (d > cat-fixity) (pp-peg-with-prec cat-fixity pp l ^  pp-peg-with-prec cat-fixity pp r)
+  | d pp (EOS)      = `$`
 
-  let-rec peg-scan
-    | rules (Alpha) input = peg-scan rules (regexp (regexp-of-string `[a-zA-Z]`)) input
-    | rules (Digit) input = peg-scan rules (regexp (regexp-of-string `[0-9]`)) input
-    | rules (AlphaNum) input = peg-scan rules (regexp (regexp-of-string `[a-zA-Z0-9]`)) input
-    | rules (NotFollowedBy(p)) input =
-       (match peg-scan rules p input with
-       | None -> Some(TagStr(None, string-empty, []), input)
-       | Some(x,z) -> None
-       )
-    | rules (NonTerminal(b)) input =
-      (match peg-scan rules (rules b) input with
-      | None -> None
-      | Some(TagStr(m, str, chs), rest) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), rest)
-      )
-    | rules (AnyChar) input =
-      if string-length input == 0
-      then None 
-      else let (c, rest) = LocalString.split-at 1 input
-           in Some(TagStr(None, c, []), rest)
-    | rules (Fail) input = None
-    | rules (Epsilon) input = Some(TagStr(None, string-empty, []), input)
-    | rules (Cat(ps)) input =
-      let go m p =
-          (match m with
+  let pp-peg f = pp-peg-with-prec unary-fixity (fun r -> arabic (Option.from (-1) (f r)))
+
+  let unwords = LocalString.unwords
+
+  let peg-scan ?:to-int rules p text =
+    let index = Option.from (fun a -> None) to-int in
+    let total-len = string-length text in
+    let-mutable memo <- IntMap.empty in
+    let nth k =
+        (match IntMap.lookup k (!memo) with
+        | None -> let-mutable d <- IntMap.empty in
+                  let cell = (string-sub text k (total-len - k), d) in
+                  let () = memo <- IntMap.insert k cell (!memo)
+                  in cell
+        | Some(d) -> d
+        )
+    in 
+    let-rec loop q n =
+      let call r k =
+        (match index r with
+        | None -> loop (rules r) k
+        | Some(i) ->
+            let (subs, d) = nth k in
+            (match IntMap.lookup i (!d) with
+            | None -> let ans = loop (rules r) k in
+                      let () = d <- IntMap.insert i ans (!d) in
+                      ans
+            | Some(tr) -> tr
+            )
+        ) in
+      let at-eos = n == total-len in
+      let (input, dcell) = nth n in
+      match q with
+      | NonTerminal(b) ->
+          (match call b n with
           | None -> None
-          | Some(acc, str, chs) ->
-             (match peg-scan rules p str with
+          | Some(TagStr(m, str, chs), pos) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), pos)
+          )
+      | Fail -> None
+      | Epsilon -> Some(TagStr(None, string-empty, []), n)
+      | EOS ->
+          if at-eos
+          then Some(TagStr(None, empstr, []), n)
+          else None
+      | RegExp re ->
+          (match string-scan (regexp-of-string re) input with
+          | Some(ans, rest) ->
+            Some(TagStr(None, ans, []), n + string-length ans)
+          | None -> None)
+      | Many(p) ->
+          if at-eos
+          then Some(TagStr(None, string-empty, []), n)
+          else
+          (match loop p n with
+          | None -> Some(TagStr(None, string-empty, []), n)
+          | Some(c, pos) ->
+            (match loop (Many(p)) pos with
+            | None -> Some(TagStr(None, untag c, [c]), pos)
+            | Some(TagStr(z, str, chs), pos2) ->
+               Some(TagStr(None, untag c ^ str, c :: chs), pos2)
+            ))
+      | Choices([]) -> None
+      | Choices(p :: ps) ->
+          (match loop p n with
+          | None -> loop (Choices ps) n
+          | Some(tstr, pos) -> Some(TagStr(None, untag tstr, [tstr]), pos))
+      | Optional(p) ->
+          (match loop p n with
+          | None -> Some(TagStr(None, string-empty, []), n)
+          | Some(tstr, r) -> Some(TagStr(None, untag tstr, [tstr]), r)
+          )
+      | Alpha ->    loop (regexp (`[a-zA-Z]`)) n
+      | Digit ->    loop (regexp (`[0-9]`)) n
+      | AlphaNum -> loop (regexp (`[a-zA-Z0-9]`)) n
+      | NotFollowedBy(p) ->
+          (match loop p n with
+          | None -> Some(TagStr(None, string-empty, []), n)
+          | Some(x,z) -> None
+          )
+      | InClass(str) ->
+          if at-eos
+          then None
+          else let c = string-sub input 0 1
+               in if string-any c str
+               then Some(TagStr(None, c, []), n + 1)
+               else None
+      | String(str) ->
+          let exp-len = string-length str in
+          if total-len - n < exp-len
+          then None
+          else let lh = string-sub input 0 exp-len in
+          if string-same lh str
+          then Some(TagStr(None, str, []), (n + exp-len))
+          else None
+      | AnyChar ->
+          if at-eos
+          then None 
+          else let c = string-sub input 0 1
+               in Some(TagStr(None, c, []), n + 1)
+      | Lookahead(p) ->
+          (match loop p n with
+           | Some(tstr, r) -> Some(TagStr(None, string-empty, []), n)
+           | None          -> None
+           )
+      | Append(l, r) ->
+          (match loop l n with
+          | None -> None
+          | Some(t, pos) ->
+             (match loop r pos with
              | None -> None
-             | Some(ch, rest) -> Some(acc ^ untag ch , rest, List.append chs [ch])
+             | Some(s, pos2) -> Some(TagStr(None, untag t ^ untag s, [t; s]), pos2)
              )
           )
-      in (match List.fold-left go (Some(string-empty, input, [])) ps with
-         | None -> None
-         | Some(txt, rest, chs) -> Some(TagStr(None, txt, chs), rest)
-         )
-    | rules (Lookahead(p)) input =
-       (match peg-scan rules p input with
-        | Some(tstr, r) -> Some(TagStr(None, string-empty, []), input)
-        | None       -> None
-        )
-    | rules (String(str)) input =
-      if string-length input < string-length str  
-      then None
-      else let (lh, rh) = LocalString.split-at (string-length str) input in
-      if string-same lh str
-      then Some(TagStr(None, str, []), rh)
-      else None
-    | rules (InClass(str)) input =
-      if string-length input == 0
-      then None
-      else let (c, rest) = LocalString.split-at 1 input
-           in if string-any c str
-           then Some(TagStr(None, c, []), rest)
-           else None
-    | rules (Optional(p)) input =
-      (match peg-scan rules p input with
-      | None -> Some(TagStr(None, string-empty, []), input)
-      | Some(tstr, r) -> Some(TagStr(None, untag tstr, [tstr]), r)
-      )
-    | rules (Choices([])) input = None
-    | rules (Choices(ps)) input =
-      let mans = LocalList.fold-right option-union None
-                 (List.map (fun p -> peg-scan rules p input) ps)
-      in (match mans with
-         | None -> None
-         | Some(tstr, rest) -> Some(TagStr(None, untag tstr, [tstr]), rest)
-         )
-    | rules (Many(p)) input =
-      if string-length input == 0
-      then Some(TagStr(None, string-empty, []), input)
-      else
-      (match peg-scan rules p input with
-      | None -> Some(TagStr(None, string-empty, []), input)
-      | Some(c, r) ->
-        (match peg-scan rules (Many(p)) r with
-        | None -> Some(TagStr(None, untag c, [c]), r)
-        | Some(TagStr(z, str, chs), s) ->
-           Some(TagStr(None, untag c ^ str, c :: chs), s)
-        ))
-    | rules (EOS) input =
-       if string-length input == 0
-       then Some(TagStr(None, string-empty, []), input)
-       else None
-    | rules (RegExp re) input =
-       match string-scan re input with
-       | Some(ans, rest) -> Some(TagStr(None, ans, []), rest)
-       | None -> None
+  in loop p 0 <&> (fun (tstr, pos) ->
+       (let rest = string-sub text pos (total-len - pos)
+        in (tstr, rest)
+       )
+     )
+
 end
