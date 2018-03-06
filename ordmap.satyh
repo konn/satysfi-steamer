@@ -1,0 +1,148 @@
+@import: local-list
+@import: ordering
+
+% Binary heap, implemented as AVL tree.
+module OrdMap : sig
+  type 'k 'v ordmap
+  type 'k 'v ordmap-ops
+
+  val ordmap    : 'k Ordering.ord -> 'k 'v ordmap-ops
+
+  val singleton : 'k 'v ordmap-ops -> 'k -> 'v -> 'k 'v ordmap
+  val empty     : 'k 'v ordmap-ops -> 'k 'v ordmap
+  val insert    : 'k 'v ordmap-ops -> 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+  val from-list : 'k 'v ordmap-ops -> ('k * 'v) list -> 'k 'v ordmap
+  val to-list   : 'k 'v ordmap-ops -> 'k 'v ordmap -> ('k * 'v) list
+  val keys      : 'k 'v ordmap-ops -> 'k 'v ordmap -> 'k list
+  val lookup    : 'k 'v ordmap-ops -> 'k -> 'k 'v ordmap -> 'v option
+end = struct
+  type 'k 'v ordmap =
+  | Branch of (| height : int
+               ; left   : 'k 'v ordmap
+               ; key    : 'k
+               ; value  : 'v
+               ; right  : 'k 'v ordmap
+               |)
+  | Leaf
+
+  type 'k 'v ordmap-ops =
+    (| singleton : 'k -> 'v -> 'k 'v ordmap
+     ; empty     : 'k 'v ordmap
+     ; insert    : 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+     ; from-list : ('k * 'v) list -> 'k 'v ordmap
+     ; to-list   : 'k 'v ordmap -> ('k * 'v) list
+     ; keys      : 'k 'v ordmap -> 'k list
+     ; lookup    : 'k -> 'k 'v ordmap -> 'v option
+     |)
+
+  let-rec height
+  | (Leaf) = 0
+  | (Branch v) = v#height
+
+  let max a b = if a < b then b else a
+
+  let fork xt z v yt =
+    let h = max (height xt) (height yt) + 1
+    in Branch (| height = h
+               ; left = xt
+               ; key = z
+               ; value = v
+               ; right = yt
+               |)
+
+  let unsafe-left
+  | (Branch v) = v#left
+
+  let unsafe-right
+  | (Branch v) = v#right
+
+  let unsafe-key
+  | (Branch v) = v#key
+
+  let unsafe-value
+  | (Branch v) = v#value
+
+  let-rec rotr
+  | (Leaf) = Leaf
+  | (Branch v) =
+      let l = v#left in
+      fork (unsafe-left l) (unsafe-key l) (unsafe-value l)
+           (fork (unsafe-right l) v#key v#value
+                 v#right)
+
+  let-rec rotl
+  | (Leaf) = Leaf
+  | (Branch v) =
+      let r = v#right in
+      fork (fork v#left v#key v#value (unsafe-left r))
+           (unsafe-key r)
+           (unsafe-value r)
+           (unsafe-right r)
+
+  let-rec bias
+  | (Leaf) = 0
+  | (Branch(v)) = height v#left - height v#right
+
+  let branch xt k v yt =
+    let hl = height xt in
+    let hr = height yt in
+    if (hr + 1 < hl)
+    then if bias xt < 0
+         then rotr (fork (rotl xt) k v yt)
+         else rotr (fork xt k v yt)
+    else
+    if hl + 1 < hr
+    then if (0 < bias yt)
+         then rotl (fork xt k v (rotr yt))
+         else rotl (fork xt k v yt)
+    else fork xt k v yt
+
+
+  let ordmap ord =
+    let (<<)    = Ordering.less-than ord in
+    let compare = Ordering.compare ord in
+    let case-ord = Ordering.case-lt-eq-gt in
+    let empty = Leaf in
+    let singleton i v = fork empty i v empty in
+    let-rec insert
+    | i a (Branch v) =
+        case-ord ord i v#key
+         (fun () -> branch (insert i a v#left) v#key v#value v#right)
+         (fun () -> branch v#left i a v#right)
+         (fun () -> branch v#left v#key v#value (insert i a v#right))
+    | i a (Leaf) = fork empty i a empty
+    in
+    let from-list = LocalList.fold-right (fun (k, v) -> insert k v) empty in
+    let-rec lookup
+    | i (Leaf) = None
+    | i (Branch(v)) =
+       case-ord ord i v#key 
+        (fun () -> lookup i v#left)
+        (fun () -> Some(v#value))
+        (fun () -> lookup i v#right)
+    in
+    let-rec to-list
+    | (Leaf)     = []
+    | (Branch v) = LocalList.concat [to-list v#left; [(v#key , v#value)]; to-list v#right]
+    in
+    let-rec keys
+    | (Leaf)     = []
+    | (Branch v) = LocalList.concat [keys v#left; [v#key]; keys v#right]
+    in
+    (| singleton = singleton
+     ; empty     = empty
+     ; insert    = insert
+     ; from-list = from-list
+     ; to-list   = to-list
+     ; keys = keys
+     ; lookup    = lookup
+     |)
+
+  let singleton os  = os#singleton
+  let empty os      = os#empty
+  let insert os     = os#insert
+  let from-list os  = os#from-list
+  let to-list os    = os#to-list
+  let keys os       = os#keys
+  let lookup os     = os#lookup
+end

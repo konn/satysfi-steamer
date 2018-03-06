@@ -1,0 +1,55 @@
+@require: list
+@import: local-list
+@import: ordering
+@import: ordmap
+
+module OrdSet : sig
+  type 'a ordset
+  type 'a ordset-ops
+
+  val ordset    : 'a Ordering.ord -> 'a ordset-ops
+
+  val singleton : 'a ordset-ops -> 'a -> 'a ordset
+  val empty     : 'a ordset-ops -> 'a ordset
+  val insert    : 'a ordset-ops -> 'a -> 'a ordset -> 'a ordset
+  val from-list : 'a ordset-ops -> 'a list -> 'a ordset
+  val to-list   : 'a ordset-ops -> 'a ordset -> 'a list
+  val is-member : 'a ordset-ops -> 'a -> 'a ordset -> bool
+end = struct
+  type 'a ordset = 'a unit OrdMap.ordmap
+  type 'a ordset-ops =
+    (| singleton : 'a -> 'a ordset
+     ; empty     : 'a ordset
+     ; insert    : 'a -> 'a ordset -> 'a ordset
+     ; from-list : 'a list -> 'a ordset
+     ; to-list   : 'a ordset -> 'a list
+     ; is-member : 'a -> 'a ordset -> bool
+     |)
+
+  let ordset ord =
+     let omap = OrdMap.ordmap ord in
+     let singleton i = OrdMap.singleton omap i () in
+     let empty       = OrdMap.empty     omap in
+     let insert    i = OrdMap.insert    omap i () in
+     let from-list d = OrdMap.from-list omap (List.map (fun i -> (i, ())) d) in
+     let to-list   d = List.map (fun (i, f) -> i) (OrdMap.to-list omap d) in
+     let is-member i d =
+       match OrdMap.lookup omap i d with
+       | None     -> false
+       | Some(()) -> true
+     in
+    (| singleton = singleton
+     ; empty     = empty
+     ; insert    = insert
+     ; from-list = from-list
+     ; to-list   = to-list
+     ; is-member = is-member
+     |)
+
+  let singleton  d = d#singleton 
+  let empty      d = d#empty     
+  let insert     d = d#insert    
+  let from-list  d = d#from-list 
+  let to-list    d = d#to-list   
+  let is-member  d = d#is-member 
+end

@@ -1,4 +1,7 @@
 @import: local-list
+@import: ordmap
+@import: ordering
+
 % Binary heap, implemented as AVL tree.
 module IntMap : sig
   type 'a intmap
@@ -12,111 +15,15 @@ module IntMap : sig
   val lookup    : int -> 'a intmap -> 'a option
 
 end = struct
-  type ordering = LT | EQ | GT
-  let compare i j =
-    if i == j then EQ
-    else if i < j
-    then LT else GT
+  type 'a intmap = int 'a OrdMap.ordmap
 
-  type 'a intmap =
-  | Branch of (| height : int
-               ; left : 'a intmap
-               ; key : int
-               ; value : 'a
-               ; right : 'a intmap
-               |)
-  | Leaf
+  let imap = OrdMap.ordmap Ordering.int
 
-  let-rec height
-  | (Leaf) = 0
-  | (Branch v) = v#height
-
-  let max a b = if a < b then b else a
-
-  let fork xt z v yt =
-    let h = max (height xt) (height yt) + 1
-    in Branch (| height = h
-               ; left = xt
-               ; key  = z
-               ; value = v
-               ; right = yt
-               |)
-
-  let unsafe-left
-  | (Branch v) = v#left
-
-  let unsafe-right
-  | (Branch v) = v#right
-
-  let unsafe-key
-  | (Branch v) = v#key
-
-  let unsafe-value
-  | (Branch v) = v#value
-
-  let-rec rotr
-  | (Leaf) = Leaf
-  | (Branch v) =
-      let l = v#left in
-      fork (unsafe-left l) (unsafe-key l) (unsafe-value l)
-           (fork (unsafe-right l) v#key v#value
-                 v#right)
-
-  let-rec rotl
-  | (Leaf) = Leaf
-  | (Branch v) =
-      let r = v#right in
-      fork (fork v#left v#key v#value (unsafe-left r))
-           (unsafe-key r) (unsafe-value r)
-           (unsafe-right r)
-
-  let-rec bias
-  | (Leaf) = 0
-  | (Branch(v)) = height v#left - height v#right
-
-  let branch xt k v yt =
-    let hl = height xt in
-    let hr = height yt in
-    if (hr + 1 < hl)
-    then if bias xt < 0
-         then rotr (fork (rotl xt) k v yt)
-         else rotr (fork xt k v yt)
-    else
-    if hl + 1 < hr
-    then if (0 < bias yt)
-         then rotl (fork xt k v (rotr yt))
-         else rotl (fork xt k v yt)
-    else fork xt k v yt
-
-  let empty = Leaf
-  let singleton i a = branch empty i a empty
-
-  let-rec insert
-  | i a (Branch v) =
-      (match compare i v#key with
-      | EQ -> branch v#left i a v#right
-      | LT -> branch (insert i a v#left) v#key v#value v#right
-      | GT -> branch v#left v#key v#value (insert i a v#right)
-      )
-  | i a (Leaf) = branch empty i a empty
-
-  let from-list =
-    LocalList.fold-right (fun (i , a) -> insert i a) empty
-
-  let-rec to-list
-  | (Leaf)     = []
-  | (Branch v) = LocalList.concat [to-list v#left; [(v#key , v#value)]; to-list v#right]
-    
-  let-rec keys
-  | (Leaf)     = []
-  | (Branch v) = LocalList.concat [keys v#left; [v#key]; keys v#right]
-
-
-  let-rec lookup
-  | i (Leaf) = None
-  | i (Branch(v)) =
-     match compare i v#key with
-     | EQ -> Some(v#value)
-     | LT -> lookup i v#left
-     | GT -> lookup i v#right
+  let empty         = OrdMap.empty imap
+  let singleton i a = OrdMap.singleton imap i a
+  let insert i a d  = OrdMap.insert imap i a d
+  let from-list ls  = OrdMap.from-list imap ls
+  let to-list d     = OrdMap.to-list   imap d
+  let keys d        = OrdMap.keys imap d
+  let lookup i d    = OrdMap.lookup imap i d
 end
