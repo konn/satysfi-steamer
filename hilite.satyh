@@ -93,6 +93,9 @@ end = struct
        ; custom-rules = (fun b -> PEG.fail)
        |)
 
+  let (<|>) = PEG.choice
+  let (>>)  = PEG.append
+
   let build-peg : syntax -> token -> token PEG.peg
   | synt tk =
     let symchar = synt#symbol-chars in
@@ -106,16 +109,16 @@ end = struct
      | Command   -> lexeme synt#commands
      | String    -> lexeme synt#string
      | Number    -> lexeme synt#number
-     | Normal    -> PEG.some symchar
+     | Normal    -> lexeme (PEG.some symchar)
      | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
      | Spaces    -> delim
-     | OtherChar -> PEG.char-but  symchar
+     | OtherChar -> PEG.char-but symchar >> PEG.spaces
      | Custom r  -> synt#custom-rules r 
 
 
    let program-line =
      PEG.cat [ PEG.spaces 
-             ; PEG.some
+             ; PEG.many
                (PEG.choices [ PEG.rule Comment
                             ; PEG.rule String
                             ; PEG.rule Number
