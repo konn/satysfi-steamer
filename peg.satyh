@@ -1,7 +1,9 @@
 @require: list
 @import: local-string
+@import: ordmap
 @import: intmap
 @import: option
+@import: ordering
 
 module PEG : sig
 
@@ -11,6 +13,7 @@ module PEG : sig
   val untag              : 'a tagged-string -> string
   val view-tagged-string : 'a tagged-string -> 'a option * string * ('a tagged-string) list
   val split-into-tags    : 'a tagged-string -> ('a option * string) list
+  val compare-peg : ('a -> 'a -> Ordering.ordering) -> 'a peg -> 'a peg -> Ordering.ordering
 
   % val pp-peg-with     : ('a -> string) -> 'a peg -> string
   % val pp-peg          : 'a peg -> string
@@ -41,7 +44,8 @@ module PEG : sig
   val spaces          : 'a peg
   val spaces1         : 'a peg
 
-  val peg-scan : ('a -> int option)? -> ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
+  val peg-scan : ('a -> 'a -> Ordering.ordering)
+              -> ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
 
 end = struct
 
@@ -187,13 +191,122 @@ end = struct
 
   let unwords = LocalString.unwords
 
-  let peg-scan ?:to-int rules p text =
-    let index = Option.from (fun a -> None) to-int in
+  let lt = Ordering.lt
+  let gt = Ordering.gt
+  let eq = Ordering.eq
+  let olex = Ordering.lex
+  let compare-string = Ordering.compare Ordering.string
+  let-rec compare-peg
+  | cmp (NonTerminal b) (NonTerminal c) = cmp b c
+  | cmp (NonTerminal b) k         = lt
+  | cmp (AnyChar) (NonTerminal b) = gt
+  | cmp (AnyChar) (AnyChar)       = eq
+  | cmp (AnyChar) k               = lt
+  | cmp (Fail) (NonTerminal b)    = gt
+  | cmp (Fail) (AnyChar)          = gt
+  | cmp (Fail) (Fail)             = eq
+  | cmp (Fail) k                  = lt
+  | cmp (Epsilon) (NonTerminal b) = gt
+  | cmp (Epsilon) (AnyChar)       = gt
+  | cmp (Epsilon) (Fail)          = gt
+  | cmp (Epsilon) (Epsilon)       = eq
+  | cmp (Epsilon) k               = lt
+  | cmp (Lookahead p) (NonTerminal b) = gt
+  | cmp (Lookahead p) (AnyChar)       = gt
+  | cmp (Lookahead p) (Fail)          = gt
+  | cmp (Lookahead p) (Epsilon)       = gt
+  | cmp (Lookahead p) (Lookahead q)   = compare-peg cmp p q
+  | cmp (Lookahead p) k               = lt
+  | cmp (String s) (NonTerminal b) = gt
+  | cmp (String s) (AnyChar)       = gt
+  | cmp (String s) (Fail)          = gt
+  | cmp (String s) (Epsilon)       = gt
+  | cmp (String s) (Lookahead p)   = gt
+  | cmp (String s) (String t)      = compare-string s t
+  | cmp (String s) k               = lt
+  | cmp (InClass cls) (NonTerminal b) = gt
+  | cmp (InClass cls) (AnyChar)       = gt
+  | cmp (InClass cls) (Fail)          = gt
+  | cmp (InClass cls) (Epsilon)       = gt
+  | cmp (InClass cls) (Lookahead p)   = gt
+  | cmp (InClass cls) (String s)      = gt
+  | cmp (InClass cls) (InClass dls) = compare-string cls dls
+  | cmp (InClass cls) k               = lt
+  | cmp (Optional p) (NonTerminal b) = gt
+  | cmp (Optional p) (AnyChar) = gt
+  | cmp (Optional p) (Fail) = gt
+  | cmp (Optional p) (Epsilon) = gt
+  | cmp (Optional p) (Lookahead q) = gt
+  | cmp (Optional p) (String str) = gt
+  | cmp (Optional p) (InClass cls) = gt
+  | cmp (Optional p) (Optional q) = compare-peg cmp p q
+  | cmp (Optional p) k = lt
+  | cmp (Many p) (EOS) = lt
+  | cmp (Many p) (AlphaNum) = lt
+  | cmp (Many p) (Digit) = lt
+  | cmp (Many p) (Alpha) = lt
+  | cmp (Many p) (RegExp re) = lt
+  | cmp (Many p) (NotFollowedBy q) = lt
+  | cmp (Many p) (Append(q, r)) = lt
+  | cmp (Many p) (Choice(q, r)) = lt
+  | cmp (Many p) (Many q) = compare-peg cmp p q
+  | cmp (Many p) k = gt
+  | cmp (Choice(l, r)) (EOS) = lt
+  | cmp (Choice(l, r)) (AlphaNum) = lt
+  | cmp (Choice(l, r)) (Digit) = lt
+  | cmp (Choice(l, r)) (Alpha) = lt
+  | cmp (Choice(l, r)) (RegExp re) = lt
+  | cmp (Choice(l, r)) (NotFollowedBy q) = lt
+  | cmp (Choice(l, r)) (Append(q, u)) = lt
+  | cmp (Choice(l, r)) (Choice(s, t)) =
+      Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
+  | cmp (Choice(l, r)) k = gt
+  | cmp (Append(l, r)) (EOS) = lt
+  | cmp (Append(l, r)) (AlphaNum) = lt
+  | cmp (Append(l, r)) (Digit) = lt
+  | cmp (Append(l, r)) (Alpha) = lt
+  | cmp (Append(l, r)) (RegExp re) = lt
+  | cmp (Append(l, r)) (NotFollowedBy q) = lt
+  | cmp (Append(l, r)) (Append(s, t)) =
+      Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
+  | cmp (Append p) k = gt
+  | cmp (NotFollowedBy p) (EOS) = lt
+  | cmp (NotFollowedBy p) (AlphaNum) = lt
+  | cmp (NotFollowedBy p) (Digit) = lt
+  | cmp (NotFollowedBy p) (Alpha) = lt
+  | cmp (NotFollowedBy p) (RegExp re) = lt
+  | cmp (NotFollowedBy p) (NotFollowedBy q) = compare-peg cmp p q
+  | cmp (NotFollowedBy p) k = gt
+  | cmp (RegExp p) (EOS) = lt
+  | cmp (RegExp p) (AlphaNum) = lt
+  | cmp (RegExp p) (Digit) = lt
+  | cmp (RegExp p) (Alpha) = lt
+  | cmp (RegExp p) (RegExp q) = compare-string p q
+  | cmp (RegExp p) k = gt
+  | cmp (Alpha) (EOS) = lt
+  | cmp (Alpha) (AlphaNum) = lt
+  | cmp (Alpha) (Digit) = lt
+  | cmp (Alpha) (Alpha) = eq
+  | cmp (Alpha) k = gt
+  | cmp (Digit) (EOS) = lt
+  | cmp (Digit) (AlphaNum) = lt
+  | cmp (Digit) (Digit) = eq
+  | cmp (Digit) k       = gt
+  | cmp (AlphaNum) (EOS) = lt
+  | cmp (AlphaNum) (AlphaNum) = eq
+  | cmp (AlphaNum) k       = gt
+  | cmp (EOS) (EOS) = eq
+  | cmp (EOS) k = gt
+
+  let peg-ord ord = Ordering.from-compare (compare-peg ord)
+
+  let peg-scan ord rules p text =
+    let omap = OrdMap.ordmap (peg-ord ord) in
     let total-len = string-length text in
     let-mutable memo <- IntMap.empty in
     let nth k =
         (match IntMap.lookup k (!memo) with
-        | None -> let-mutable d <- IntMap.empty in
+        | None -> let-mutable d <- OrdMap.empty omap in
                   let cell = (string-sub text k (total-len - k), d) in
                   let () = memo <- IntMap.insert k cell (!memo)
                   in cell
@@ -202,22 +315,19 @@ end = struct
     in 
     let-rec loop q n =
       let call r k =
-        (match index r with
-        | None -> loop (rules r) k
-        | Some(i) ->
             let (subs, d) = nth k in
-            (match IntMap.lookup i (!d) with
-            | None -> let ans = loop (rules r) k in
-                      let () = d <- IntMap.insert i ans (!d) in
+            (match OrdMap.lookup omap r (!d) with
+            | None -> let ans = loop r k in
+                      let () = d <- OrdMap.insert omap r ans (!d) in
                       ans
             | Some(tr) -> tr
             )
-        ) in
+      in
       let at-eos = n == total-len in
       let (input, dcell) = nth n in
       match q with
       | NonTerminal(b) ->
-          (match call b n with
+          (match call (NonTerminal b) n with
           | None -> None
           | Some(TagStr(m, str, chs), pos) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), pos)
           )
@@ -300,5 +410,4 @@ end = struct
         in (tstr, rest)
        )
      )
-
 end

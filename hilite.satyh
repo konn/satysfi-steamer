@@ -78,7 +78,11 @@ end = struct
        ; open-parens  : string
        ; close-parens : string
        ; custom-rules : 'a -> ('a token) PEG.peg
+       ; ordering: 'a Ordering.ord
        |)
+
+  let unsafe-id-eq-ord : 'a ord
+  = Ordering.from-compare (fun x y -> Ordering.eq)
 
    let empty-syntax : 'a syntax =
       (| keywords     = []
@@ -91,12 +95,13 @@ end = struct
        ; open-parens  = LocalString.string-empty
        ; close-parens = LocalString.string-empty
        ; custom-rules = (fun b -> PEG.fail)
+       ; ordering = unsafe-id-eq-ord
        |)
 
   let (<|>) = PEG.choice
   let (>>)  = PEG.append
 
-  let build-peg : syntax -> token -> token PEG.peg
+  let build-peg
   | synt tk =
     let symchar = synt#symbol-chars in
     let delim = PEG.choices [ PEG.spaces1 ; PEG.not-followed-by symchar ] in
@@ -131,19 +136,49 @@ end = struct
              ; PEG.eos
              ]
 
-  let-rec number-tok
-  | (Keyword)   = Some(0)
-  | (Primitive) = Some(1)
-  | (Command)   = Some(2)
-  | (String)    = Some(3)
-  | (Number)    = Some(4)
-  | (Normal)    = Some(5)
-  | (Comment)   = Some(6)
-  | (Spaces)    = Some(7)
-  | (OtherChar) = Some(8)
-  | z         = None
+  let-rec tok-ord
+  | ord (Keyword) (Keyword) = Ordering.eq
+  | ord (Keyword) k = Ordering.lt
+  | ord (Primitive) (Keyword) = Ordering.gt
+  | ord (Primitive) (Primitive) = Ordering.eq
+  | ord (Primitive) k = Ordering.lt
+  | ord (Command) (Keyword) = Ordering.gt
+  | ord (Command) (Primitive) = Ordering.gt
+  | ord (Command) (Command) = Ordering.eq
+  | ord (Command) k = Ordering.lt
+  | ord (String) (Keyword) = Ordering.gt
+  | ord (String) (Primitive) = Ordering.gt
+  | ord (String) (Command) = Ordering.gt
+  | ord (String) (String) = Ordering.eq
+  | ord (String) k = Ordering.lt
+  | ord (Number) (Keyword) = Ordering.gt
+  | ord (Number) (Primitive) = Ordering.gt
+  | ord (Number) (Command) = Ordering.gt
+  | ord (Number) (String) = Ordering.gt
+  | ord (Number) (Number) = Ordering.eq
+  | ord (Number) k = Ordering.lt
+  | ord (Normal) (Custom c) = Ordering.lt
+  | ord (Normal) (OtherChar) = Ordering.lt
+  | ord (Normal) (Spaces) = Ordering.lt
+  | ord (Normal) (Comment) = Ordering.lt
+  | ord (Normal) (Normal) = Ordering.eq
+  | ord (Normal) k = Ordering.gt
+  | ord (Comment) (Custom c) = Ordering.lt
+  | ord (Comment) (OtherChar) = Ordering.lt
+  | ord (Comment) (Spaces) = Ordering.lt
+  | ord (Comment) (Comment) = Ordering.eq
+  | ord (Comment) k = Ordering.gt
+  | ord (Spaces) (Custom c) = Ordering.lt
+  | ord (Spaces) (OtherChar) = Ordering.lt
+  | ord (Spaces) (Spaces) = Ordering.eq
+  | ord (Spaces) k = Ordering.gt
+  | ord (OtherChar) (Custom c) = Ordering.lt
+  | ord (OtherChar) (OtherChar) = Ordering.eq
+  | ord (OtherChar) k = Ordering.gt
+  | ord (Custom f) (Custom g) = Ordering.compare ord f g
+  | ord (Custom f) k = Ordering.gt
 
-  let parse-syntax synt str = PEG.peg-scan ?:(number-tok) (build-peg synt) program-line str
+  let parse-syntax synt str = PEG.peg-scan (tok-ord synt#ordering) (build-peg synt) program-line str
 
   let satysfi-syntax : satysfi-aux syntax =
     let quote = PEG.string (string-unexplode [96]) in
@@ -233,6 +268,13 @@ end = struct
      ; open-parens  = `({[<`
      ; close-parens = `]})>`
      ; custom-rules = aux-rules
+     ; ordering = Ordering.from-compare (fun x y ->
+       (match (x, y) with
+       | (StringBody, StringBody) -> Ordering.eq
+       | (StringBody, StringContent) -> Ordering.lt
+       | (StringContent, StringBody) -> Ordering.gt
+       | (StringContent, StringContent) -> Ordering.eq
+       ))
      |)
 
    type coloring =
@@ -350,7 +392,7 @@ end = struct
     in
       (deco, deco, deco, deco)
 
-  let code-scheme : length option -> decoset -> coloring -> syntax -> context -> string -> block-boxes
+  let code-scheme
   | msize decoset coloring syntax ctx code =
       let pads = (5pt, 5pt, 5pt, 5pt) in
       let size =
