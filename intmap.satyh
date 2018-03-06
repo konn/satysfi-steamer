@@ -1,5 +1,5 @@
 @import: local-list
-% Naive (unbalanced) binary heap
+% Binary heap, implemented as AVL tree.
 module IntMap : sig
   type 'a intmap
 
