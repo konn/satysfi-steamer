@@ -10,31 +10,103 @@ module IntMap : sig
   val lookup    : int -> 'a intmap -> 'a option
 
 end = struct
+  type ordering = LT | EQ | GT
+  let compare i j =
+    if i == j then EQ
+    else if i < j
+    then LT else GT
+
   type 'a intmap =
-  | Branch of 'a intmap * (int * 'a) * 'a intmap
+  | Branch of (| height : int
+               ; left : 'a intmap
+               ; key : int
+               ; value : 'a
+               ; right : 'a intmap
+               |)
   | Leaf
 
+  let-rec height
+  | (Leaf) = 0
+  | (Branch v) = v#height
+
+  let max a b = if a < b then b else a
+
+  let fork xt z v yt =
+    let h = max (height xt) (height yt) + 1
+    in Branch (| height = h
+               ; left = xt
+               ; key  = z
+               ; value = v
+               ; right = yt
+               |)
+
+  let unsafe-left
+  | (Branch v) = v#left
+
+  let unsafe-right
+  | (Branch v) = v#right
+
+  let unsafe-key
+  | (Branch v) = v#key
+
+  let unsafe-value
+  | (Branch v) = v#value
+
+  let-rec rotr
+  | (Leaf) = Leaf
+  | (Branch v) =
+      let l = v#left in
+      fork (unsafe-left l) (unsafe-key l) (unsafe-value l)
+           (fork (unsafe-right l) v#key v#value
+                 v#right)
+
+  let-rec rotl
+  | (Leaf) = Leaf
+  | (Branch v) =
+      let r = v#right in
+      fork (fork v#left v#key v#value (unsafe-left r))
+           (unsafe-key r) (unsafe-value r)
+           (unsafe-right r)
+
+  let-rec bias
+  | (Leaf) = 0
+  | (Branch(v)) = height v#left - height v#right
+
+  let branch xt k v yt =
+    let hl = height xt in
+    let hr = height yt in
+    if (hr + 1 < hl)
+    then if bias xt < 0
+         then rotr (fork (rotl xt) k v yt)
+         else rotr (fork xt k v yt)
+    else
+    if hl + 1 < hr
+    then if (0 < bias yt)
+         then rotl (fork xt k v (rotr yt))
+         else rotl (fork xt k v yt)
+    else fork xt k v yt
+         
+
   let empty = Leaf
-  let singleton i a = Branch(Leaf, (i, a), Leaf)
+  let singleton i a = branch empty i a empty
 
   let-rec insert
-  | i a (Branch(l, (j, b), r)) =
-      if i == j
-      then Branch(l, (i, a), r)
-      else if i < j
-      then Branch(insert i a l, (j, b), r)
-      else Branch(l, (j, b), insert i a r)
-  | i a (Leaf) = Branch(Leaf, (i, a), Leaf)
+  | i a (Branch v) =
+      (match compare i v#key with
+      | EQ -> branch v#left i a v#right
+      | LT -> branch (insert i a v#left) v#key v#value v#right
+      | GT -> branch v#left v#key v#value (insert i a v#right)
+      )
+  | i a (Leaf) = branch empty i a empty
 
   let from-list =
     LocalList.fold-right (fun (i , a) -> insert i a) empty
 
   let-rec lookup
   | i (Leaf) = None
-  | i (Branch(l, (j, a), r)) =
-      if i == j
-      then Some(a)
-      else if i < j
-      then lookup i l
-      else lookup i r
+  | i (Branch(v)) =
+     match compare i v#key with
+     | EQ -> Some(v#value)
+     | LT -> lookup i v#left
+     | GT -> lookup i v#right
 end

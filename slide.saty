@@ -1,5 +1,6 @@
 % -*- coding: utf-8 -*-
 @import: steamer
+% @import: ordmap
 @require: gr
 % @import: local-code
 % @import: intmap
