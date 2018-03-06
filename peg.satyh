@@ -41,7 +41,8 @@ module PEG : sig
   val spaces          : 'a peg
   val spaces1         : 'a peg
 
-  val peg-scan : ('a -> int option)? -> ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
+  val compile-peg : ('a -> int) -> 'a peg -> int peg
+  val peg-scan : (int -> int peg) -> int peg -> string -> (int tagged-string * string) option
 
 end = struct
 
@@ -63,6 +64,25 @@ end = struct
   | Digit
   | AlphaNum
   | EOS
+
+  let-rec compile-peg
+  | f (NonTerminal(a))   = NonTerminal(f a)
+  | f (AnyChar)          = AnyChar
+  | f (Fail)             = Fail
+  | f (Epsilon)          = Epsilon
+  | f (Lookahead(p))     = Lookahead(compile-peg f p)
+  | f (String(str))      = String(str)
+  | f (InClass(cls))     = InClass(cls)
+  | f (Optional(p))      = Optional(compile-peg f p)
+  | f (Many(p))          = Many(compile-peg f p)
+  | f (Choices(ps))      = Choices(List.map (compile-peg f) ps)
+  | f (Append(l, r))     = Append(compile-peg f l, compile-peg f r)
+  | f (NotFollowedBy(p)) = NotFollowedBy(compile-peg f p)
+  | f (RegExp(re))       = RegExp(re)
+  | f (Alpha)            = Alpha
+  | f (Digit)            = Digit
+  | f (AlphaNum)         = AlphaNum
+  | f (EOS)              = EOS
 
   type 'a tagged-string =
        TagStr of 'a option * string * ('a tagged-string) list
@@ -185,8 +205,7 @@ end = struct
 
   let unwords = LocalString.unwords
 
-  let peg-scan ?:to-int rules p text =
-    let index = Option.from (fun a -> None) to-int in
+  let peg-scan rules p text =
     let total-len = string-length text in
     let-mutable memo <- IntMap.empty in
     let nth k =
@@ -199,18 +218,15 @@ end = struct
         )
     in 
     let-rec loop q n =
-      let call r k =
-        (match index r with
-        | None -> loop (rules r) k
-        | Some(i) ->
-            let (subs, d) = nth k in
-            (match IntMap.lookup i (!d) with
-            | None -> let ans = loop (rules r) k in
-                      let () = d <- IntMap.insert i ans (!d) in
-                      ans
-            | Some(tr) -> tr
-            )
-        ) in
+      let call i k =
+          let (subs, d) = nth k in
+          (match IntMap.lookup i (!d) with
+          | None -> let ans = loop (rules i) k in
+                    let () = d <- IntMap.insert i ans (!d) in
+                    ans
+          | Some(tr) -> tr
+          )
+       in
       let at-eos = n == total-len in
       let (input, dcell) = nth n in
       match q with

@@ -11,76 +11,67 @@
 
 module Hilite : sig
 
-  type 'a syntax
+  type syntax
   type coloring
-  type 'a token
+  type token
   type simple-token
-  type satysfi-aux
-  val highlight    : context -> coloring -> 'a syntax -> string -> inline-boxes
-  val empty-syntax : 'a syntax
+  val highlight    : context -> coloring -> syntax -> string -> inline-boxes
+  val empty-syntax : syntax
   val default-coloring : coloring
   val make-simple-theme : color -> coloring
-  val build-peg : 'aux syntax ->  'aux token -> ('aux token) PEG.peg
-  val satysfi-syntax : satysfi-aux syntax
-  val parse-syntax : 'a syntax -> string -> (('a token) PEG.tagged-string * string) option
+  val build-peg : syntax -> int -> int PEG.peg
+  val satysfi-syntax : syntax
+  val parse-syntax : syntax -> string -> (int PEG.tagged-string * string) option
 
-  val comment   : 'a token
-  val keyword   : 'a token
-  val primitive : 'a token
-  val string    : 'a token
-  val number    : 'a token
-  val normal    : 'a token
-  val commandR  : 'a token
+  val keyword: token
+  val primitive: token
+  val commandR: token
+  val string: token
+  val number: token
+  val normal: token
+  val comment: token
+  val spaces: token
+  val otherchar: token
+  val custom: int -> token
 
   direct \code :[inline-text] inline-cmd
   direct \meta :[math] inline-cmd
-  direct \hcode : [coloring?; ('a syntax)?; string] inline-cmd
+  direct \hcode : [coloring?; (syntax)?; string] inline-cmd
   direct +code : [length?; string] block-cmd
-  direct +hcode : [length?; coloring?; ('a syntax)?; string] block-cmd
+  direct +hcode : [length?; coloring?; (syntax)?; string] block-cmd
   direct +console : [length?; string] block-cmd
 
 end = struct
-  type 'a token
-    = Keyword
-    | Primitive
-    | Command
-    | String
-    | Number
-    | Normal
-    | Comment
-    | Spaces
-    | OtherChar
-    | Custom of 'a
+  type token = int
 
-  type satysfi-aux
-    = StringBody
-    | StringContent
+  let keyword = 2 * 0
+  let primitive = 2 * 1
+  let commandR = 2 * 2
+  let string = 2 * 3
+  let number = 2 * 4
+  let normal = 2 * 5
+  let comment = 2 * 6
+  let spaces = 2 * 7
+  let otherchar = 2 * 8
+  let custom z = 2 * z + 1
 
   type void = Dummy
-  type simple-token = void token
+  type simple-token = token
 
-  let keyword   = Keyword
-  let primitive = Primitive
-  let commandR  = Command
-  let string    = String
-  let number    = Number
-  let normal    = Normal
-  let comment   = Comment
-
-  type 'a syntax =
+  type syntax =
       (| keywords     : string list
        ; primitives   : string list
-       ; commands     : ('a token) PEG.peg
-       ; string       : ('a token) PEG.peg
-       ; number       : ('a token) PEG.peg
-       ; comment      : ('a token) PEG.peg
-       ; symbol-chars : ('a token) PEG.peg
+       ; commands     : token PEG.peg
+       ; string       : token PEG.peg
+       ; number       : token PEG.peg
+       ; comment      : token PEG.peg
+       ; symbol-chars : token PEG.peg
        ; open-parens  : string
        ; close-parens : string
-       ; custom-rules : 'a -> ('a token) PEG.peg
+       ; custom-rules : int -> token PEG.peg
        |)
 
-   let empty-syntax : 'a syntax =
+   let empty-syntax : syntax =
       (| keywords     = []
        ; primitives   = []
        ; commands     = PEG.fail
@@ -96,68 +87,70 @@ end = struct
   let (<|>) = PEG.choice
   let (>>)  = PEG.append
 
-  let build-peg : syntax -> token -> token PEG.peg
+  let build-peg : syntax -> int -> int PEG.peg
   | synt tk =
     let symchar = synt#symbol-chars in
     let delim = PEG.choices [ PEG.spaces1 ; PEG.not-followed-by symchar ] in
-    let reserved str = PEG.cat [PEG.string str ; PEG.not-followed-by symchar; delim] in
+    let reserved str =
+            PEG.cat [PEG.string str ; PEG.not-followed-by symchar; delim] in
     let reserveds syms = PEG.choices (List.map reserved syms) in
     let lexeme p = PEG.cat [p; delim] in
-    match tk with
-     | Keyword   -> reserveds synt#keywords
-     | Primitive -> reserveds synt#primitives
-     | Command   -> lexeme synt#commands
-     | String    -> lexeme synt#string
-     | Number    -> lexeme synt#number
-     | Normal    -> lexeme (PEG.some symchar)
-     | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
-     | Spaces    -> delim
-     | OtherChar -> PEG.char-but symchar >> PEG.spaces
-     | Custom r  -> synt#custom-rules r 
+    if tk < 0
+    then PEG.fail
+    else if tk == keyword
+    then reserveds synt#keywords
+    else if tk == primitive
+    then reserveds synt#primitives
+    else if tk == commandR
+    then lexeme synt#commands
+    else if tk == string
+    then lexeme synt#string
+    else if tk == number
+    then lexeme synt#number
+    else if tk == normal
+    then lexeme (PEG.some symchar)
+    else if tk == comment
+    then PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
+    else if tk == spaces
+    then delim
+    else if tk == otherchar
+    then PEG.char-but symchar >> PEG.spaces
+    else synt#custom-rules ((tk - 1) / 2)
 
 
    let program-line =
      PEG.cat [ PEG.spaces 
              ; PEG.many
-               (PEG.choices [ PEG.rule Comment
-                            ; PEG.rule String
-                            ; PEG.rule Number
-                            ; PEG.rule Keyword
-                            ; PEG.rule Primitive
-                            ; PEG.rule Command
-                            ; PEG.rule Normal
-                            ; PEG.rule OtherChar
+               (PEG.choices [ PEG.rule comment
+                            ; PEG.rule string
+                            ; PEG.rule number
+                            ; PEG.rule keyword
+                            ; PEG.rule primitive
+                            ; PEG.rule commandR
+                            ; PEG.rule normal
+                            ; PEG.rule otherchar
                             ])
              ; PEG.eos
              ]
 
-  let-rec number-tok
-  | (Keyword)   = Some(0)
-  | (Primitive) = Some(1)
-  | (Command)   = Some(2)
-  | (String)    = Some(3)
-  | (Number)    = Some(4)
-  | (Normal)    = Some(5)
-  | (Comment)   = Some(6)
-  | (Spaces)    = Some(7)
-  | (OtherChar) = Some(8)
-  | z         = None
+  let parse-syntax synt str = PEG.peg-scan (build-peg synt) program-line str
 
-  let parse-syntax synt str = PEG.peg-scan ?:(number-tok) (build-peg synt) program-line str
-
-  let satysfi-syntax : satysfi-aux syntax =
+  let satysfi-syntax : syntax =
+    let string-side = 0 in
+    let string-content = 1 in
     let quote = PEG.string (string-unexplode [96]) in
     let symb-chars = PEG.choice PEG.alphanum (PEG.string `-`) in
     let symbol p = PEG.cat [PEG.string p; PEG.not-followed-by symb-chars] in
     let measure = PEG.choices (List.map symbol [`pt`; `mm`; `cm`; `inch`]) in
     let aux-rules b = 
-        (match b with
-         | StringBody ->
-             PEG.choices [ PEG.cat [quote ; PEG.rule (Custom(StringBody)); quote]
-                         ; PEG.rule (Custom(StringContent))
+        (if b == string-side
+         then
+             PEG.choices [ PEG.cat [quote ; PEG.rule (custom string-side); quote]
+                         ; PEG.rule (custom string-content)
                          ]
-         | StringContent ->
-             PEG.some (PEG.char-but quote)
+         else if b == string-content
+         then PEG.some (PEG.char-but quote)
+         else PEG.fail
          ) in 
     (| keywords =
            [ `let-inline`; `let`; `let-rec`; `let-mutable`
@@ -205,7 +198,7 @@ end = struct
      ; string = PEG.choices
               [ PEG.cat
                   [ quote
-                  ; PEG.rule (Custom(StringBody))
+                  ; PEG.rule (custom string-side)
                   ; quote
                   ]
               ]
@@ -279,13 +272,14 @@ end = struct
 
   let colorise ctx theme synt (stok, str) =
       let c = match stok with
-              | Some(Keyword)   -> theme#keywords
-              | Some(Primitive) -> theme#primitives
-              | Some(Command)   -> theme#commands
-              | Some(String)    -> theme#string
-              | Some(Number)    -> theme#number
-              | Some(Comment)   -> theme#comment
-              | z               -> theme#normal
+              | Some(0) -> theme#keywords
+              | Some(2) -> theme#primitives
+              | Some(4) -> theme#commands
+              | Some(6) -> theme#string
+              | Some(8) -> theme#number
+              | Some(10) -> theme#normal
+              | Some(12) -> theme#comment
+              | z       -> theme#normal
       in
       let col-ctx = ctx |> set-text-color c in
       read-inline col-ctx (embed-string str)
@@ -298,11 +292,6 @@ end = struct
     match mtks with
     | None -> read-inline (ctx |> set-text-color coloring#normal) (embed-string str)
     | Some(tks) -> LocalList.fold-right (++) inline-nil (List.map (colorise ctx coloring synt) tks)
-
-  let from-option a m =
-    match m with
-    | Some(b) -> b
-    | None    -> a
 
   let code-fill-color = (RGB(0.975, 0.975, 1.))
   let code-stroke-color = (RGB(0., 0., 0.25))
