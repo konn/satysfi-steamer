@@ -55,7 +55,7 @@ end = struct
   | InClass       of string
   | Optional      of 'a peg
   | Many          of 'a peg
-  | Choices       of ('a peg) list
+  | Choice        of 'a peg * 'a peg
   | Append        of 'a peg * 'a peg
   | NotFollowedBy of 'a peg
   | RegExp        of string
@@ -121,8 +121,11 @@ end = struct
   let optional re = Optional(re)
   let many re = Many(re)
   let some re = Append(re , Many re)
-  let choices ls = Choices(ls)
-  let choice l r = choices [l ; r]
+  let choice l r = Choice(l, r)
+  let choices ps =
+      match ps with
+      | [] -> fail
+      | ls -> LocalList.fold-right-1 choice ls
   let append l r = Append(l, r)
   let cat ps     = LocalList.fold-right append epsilon ps
   let not-followed-by pg = NotFollowedBy(pg)
@@ -175,8 +178,7 @@ end = struct
   | d pp (InClass cls) = `[` ^ cls ^ `]` 
   | d pp (Optional p)  = pp-peg-with-prec post-fixity pp p ^ `?`
   | d pp (Many p)      = pp-peg-with-prec post-fixity pp p ^ `*`
-  | d pp (Choices []) = `_|_`
-  | d pp (Choices alt) = paren (d > choice-fixity) (LocalString.join-strings `/` (List.map (pp-peg-with-prec choice-fixity pp) alt))
+  | d pp (Choice (p, q)) = paren (d > choice-fixity) (LocalString.join-strings `/` (List.map (pp-peg-with-prec choice-fixity pp) [p ; q]))
   | d pp (Append(l, r)) =
       paren (d > cat-fixity) (pp-peg-with-prec cat-fixity pp l ^  pp-peg-with-prec cat-fixity pp r)
   | d pp (EOS)      = `$`
@@ -242,10 +244,9 @@ end = struct
             | Some(TagStr(z, str, chs), pos2) ->
                Some(TagStr(None, untag c ^ str, c :: chs), pos2)
             ))
-      | Choices([]) -> None
-      | Choices(p :: ps) ->
+      | Choice(p, q) ->
           (match loop p n with
-          | None -> loop (Choices ps) n
+          | None -> loop q n
           | Some(tstr, pos) -> Some(TagStr(None, untag tstr, [tstr]), pos))
       | Optional(p) ->
           (match loop p n with
