@@ -7,6 +7,8 @@ module IntMap : sig
   val empty     : 'a intmap
   val insert    : int -> 'a -> 'a intmap -> 'a intmap
   val from-list : (int * 'a) list -> 'a intmap
+  val to-list   : 'a intmap -> (int * 'a) list
+  val keys      : 'a intmap -> int list
   val lookup    : int -> 'a intmap -> 'a option
 
 end = struct
@@ -85,7 +87,6 @@ end = struct
          then rotl (fork xt k v (rotr yt))
          else rotl (fork xt k v yt)
     else fork xt k v yt
-         
 
   let empty = Leaf
   let singleton i a = branch empty i a empty
@@ -101,6 +102,15 @@ end = struct
 
   let from-list =
     LocalList.fold-right (fun (i , a) -> insert i a) empty
+
+  let-rec to-list
+  | (Leaf)     = []
+  | (Branch v) = LocalList.concat [to-list v#left; [(v#key , v#value)]; to-list v#right]
+    
+  let-rec keys
+  | (Leaf)     = []
+  | (Branch v) = LocalList.concat [keys v#left; [v#key]; keys v#right]
+
 
   let-rec lookup
   | i (Leaf) = None
