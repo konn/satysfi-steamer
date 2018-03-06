@@ -422,7 +422,6 @@ end = struct
   let-inline ctx \meta m =
     let ctx-meta =
       ctx |> set-text-color Color.orange
-          |> set-font Latin Steamer.font-latin-italic
           |> set-font Latin (`Menlo`, .8, 0.)
     in
       embed-math ctx-meta m
