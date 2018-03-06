@@ -4,6 +4,7 @@
 module LocalString : sig
   val join-strings: string -> string list -> string
   val cat-strings: string list -> string
+  val unwords: string list -> string
   val string-empty : string
   val space: string
   val spaces : int -> string
@@ -17,6 +18,8 @@ end = struct
     | (x :: xs) -> List.fold-left (fun l r -> l ^ sep ^ r) x xs
 
   let cat-strings = LocalList.fold-right (^) ` `
+
+  let unwords = join-strings (string-unexplode [32])
 
   let space = string-unexplode [32]
   let spaces n = cat-strings (LocalList.replicate n (string-unexplode [32]))

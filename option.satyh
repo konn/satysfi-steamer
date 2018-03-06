@@ -1,7 +1,7 @@
 module Option : sig
   val fmap : ('a -> 'b) -> 'a option -> 'b option
   val from : 'a -> 'a option -> 'a
-
+  val bind : 'a option -> ('a -> 'b option) -> 'b option
 end = struct
   let-rec from
   | a (None) = a
@@ -10,4 +10,8 @@ end = struct
   let-rec fmap
   | f (None) = None
   | f (Some(a)) = Some(f a)
+
+  let-rec bind
+  | (None)    f = None
+  | (Some(a)) f = f(a)
 end
