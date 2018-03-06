@@ -314,34 +314,38 @@ end = struct
         )
     in 
     let-rec loop q n =
-      let call r k =
-            let (subs, d) = nth k in
-            (match OrdMap.lookup omap r (!d) with
-            | None -> let ans = loop r k in
-                      let () = d <- OrdMap.insert omap r ans (!d) in
+      let (input, d) = nth n in
+      let memoise f =
+            (match OrdMap.lookup omap q (!d) with
+            | None -> let ans = f () in
+                      let () = d <- OrdMap.insert omap q ans (!d) in
                       ans
             | Some(tr) -> tr
             )
       in
       let at-eos = n == total-len in
-      let (input, dcell) = nth n in
       match q with
       | NonTerminal(b) ->
-          (match call (NonTerminal b) n with
+          memoise
+          (fun () ->
+          (match loop (rules b) n with
           | None -> None
           | Some(TagStr(m, str, chs), pos) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), pos)
-          )
+          ))
       | Fail -> None
       | Epsilon -> Some(TagStr(None, string-empty, []), n)
       | EOS ->
-          if at-eos
+          memoise (fun () ->
+          (if at-eos
           then Some(TagStr(None, empstr, []), n)
-          else None
+          else None))
       | RegExp re ->
-          (match string-scan (regexp-of-string re) input with
-          | Some(ans, rest) ->
-            Some(TagStr(None, ans, []), n + string-length ans)
-          | None -> None)
+          memoise 
+          (fun () ->
+           (match string-scan (regexp-of-string re) input with
+           | Some(ans, rest) ->
+             Some(TagStr(None, ans, []), n + string-length ans)
+           | None -> None))
       | Many(p) ->
           if at-eos
           then Some(TagStr(None, string-empty, []), n)
@@ -363,29 +367,23 @@ end = struct
           | None -> Some(TagStr(None, string-empty, []), n)
           | Some(tstr, r) -> Some(TagStr(None, untag tstr, [tstr]), r)
           )
-      | Alpha ->    loop (regexp (`[a-zA-Z]`)) n
-      | Digit ->    loop (regexp (`[0-9]`)) n
+      | Alpha -> loop (regexp (`[a-zA-Z]`)) n
+      | Digit -> loop (regexp (`[0-9]`)) n
       | AlphaNum -> loop (regexp (`[a-zA-Z0-9]`)) n
       | NotFollowedBy(p) ->
           (match loop p n with
           | None -> Some(TagStr(None, string-empty, []), n)
           | Some(x,z) -> None
           )
-      | InClass(str) ->
-          if at-eos
-          then None
-          else let c = string-sub input 0 1
-               in if string-any c str
-               then Some(TagStr(None, c, []), n + 1)
-               else None
+      | InClass(str) -> loop (regexp (`[` ^ str ^ `]`)) n
       | String(str) ->
-          let exp-len = string-length str in
+          (let exp-len = string-length str in
           if total-len - n < exp-len
           then None
           else let lh = string-sub input 0 exp-len in
           if string-same lh str
           then Some(TagStr(None, str, []), (n + exp-len))
-          else None
+          else None)
       | AnyChar ->
           if at-eos
           then None 
