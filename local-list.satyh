@@ -5,6 +5,7 @@ module LocalList : sig
 
   val any: ('a -> bool) -> 'a list -> bool
   val replicate : int -> 'a -> 'a list
+  val concat : ('a list) list -> 'a list
 end = struct
   let-rec fold-right
     | f y []        = y
@@ -21,4 +22,6 @@ end = struct
   let-rec replicate
   | 0 a = []
   | n a = a :: replicate (n - 1) a
+
+  let concat = fold-right List.append []
 end
