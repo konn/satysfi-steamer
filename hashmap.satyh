@@ -1,0 +1,74 @@
+@import: intmap
+@import: hashable
+@import: local-list
+@import: option
+
+module HashMap : sig
+  type 'k 'v hashmap
+  type 'k 'v hashmap-ops
+
+  val empty     : 'k 'v hashmap
+  val keys      : 'k 'v hashmap -> 'k list
+  val to-list   : 'k 'v hashmap -> ('k * 'v) list
+
+  val hashmap   : 'k Hashable.hasher -> 'k 'v hashmap-ops
+
+  val insert      : 'k 'v hashmap-ops -> 'k -> 'v -> 'k 'v hashmap -> 'k 'v hashmap
+  val insert-with : 'k 'v hashmap-ops -> ('v -> 'v -> 'v) -> 'k -> 'v -> 'k 'v hashmap -> 'k 'v hashmap
+  val from-list   : 'k 'v hashmap-ops -> ('k * 'v) list -> 'k 'v hashmap
+  val lookup      : 'k 'v hashmap-ops -> 'k -> 'k 'v hashmap -> 'v option
+  val singleton   : 'k 'v hashmap-ops -> 'k -> 'v -> 'k 'v hashmap
+end = struct
+  type 'k 'v hashmap = (('k * 'v) list) IntMap.intmap
+
+  type 'k 'v hashmap-ops =
+    (| insert      : 'k -> 'v -> 'k 'v hashmap -> 'k 'v hashmap
+     ; insert-with : ('v -> 'v -> 'v) -> 'k -> 'v -> 'k 'v hashmap -> 'k 'v hashmap
+     ; from-list   : ('k * 'v) list -> 'k 'v hashmap
+     ; lookup      : 'k -> 'k 'v hashmap -> 'v option
+     ; singleton   : 'k -> 'v -> 'k 'v hashmap
+     |)
+
+
+  let empty = IntMap.empty
+  let to-list dic =
+    LocalList.concat (List.map (fun (_ , kvs) -> kvs) (IntMap.to-list dic))
+  let keys dic =
+    LocalList.concat (List.map (fun (_ , kvs) -> List.map (fun (k, _) -> k) kvs)
+      (IntMap.to-list dic))
+
+  let hashmap hasher =
+    let hash  = Hashable.hash hasher in
+    let (===) = Hashable.equal hasher in
+    let-rec append-eq
+    | f ((k, v) :: _) [] = [(k, v)]
+    | f ((k, v) :: _) ((l, u) :: kvs) =
+        if k === l
+        then (k, f u v) :: kvs
+        else (l, u) :: append-eq f [(k, v)] kvs
+    in
+    let singleton k v = IntMap.singleton (hash k) [(k, v)]
+    in
+    let-rec search
+    | k [] = None
+    | k ((l, v) :: kvs) = if k === l then Some(v) else search k kvs
+    in
+    let (>>=) = Option.bind in
+    let insert-with f k v map = IntMap.insert-with (append-eq f) (hash k) [(k, v)] map in
+    let insert = insert-with (fun a b -> b) in
+    let lookup k map = IntMap.lookup (hash k) map >>= search k in
+    let from-list = LocalList.fold-right (fun (k, v) d -> insert k v d) empty
+    in (| insert = insert
+        ; insert-with = insert-with
+        ; singleton = singleton
+        ; from-list = from-list
+        ; lookup = lookup
+        |)
+
+  let singleton os i v       = os#singleton i v
+  let insert os i v          = os#insert i v
+  let from-list os kvs       = os#from-list kvs
+  let lookup os k dic        = os#lookup k dic
+  let insert-with os f k dic = os#insert-with f k dic
+
+end
