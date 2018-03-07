@@ -1,0 +1,17 @@
+module Either : sig
+  type 'a 'b either
+  val left  : 'a -> 'a 'b either
+  val right : 'b -> 'a 'b either
+
+  val from: ('a -> 'x) -> ('b -> 'x) -> 'a 'b either -> 'x
+end = struct
+  type 'a 'b either =
+    Left  of 'a
+  | Right of 'b
+
+  let left a = Left(a)
+  let right b = Right(b)
+  let-rec from
+  | l r (Left(a))  = l a
+  | l r (Right(b)) = r b
+end

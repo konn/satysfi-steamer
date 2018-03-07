@@ -19,6 +19,11 @@ module Hashable : sig
   val int: int hasher
   val list: 'a hasher -> ('a list) hasher
   val string: string hasher
+  val unit: unit hasher
+
+  val in-left:  'a hasher -> 'a -> int
+  val in-right: 'a hasher -> 'a -> int
+  val in-nth: 'a hasher -> int -> int -> 'a -> int
 end = struct
   type 'a hasher =
     (| hash-with-salt : int -> 'a -> int
@@ -104,6 +109,18 @@ end = struct
      ; hash-with-salt = (fun s x -> hash-with-salt has s (f x))
      ; equal = (fun x y -> equal has (f x) (f y))
      |)
+
+  let in-left  hash = hash-with-salt hash 0
+  let in-right hash = hash-with-salt hash distinguisher
+
+  let unit = mk (fun () -> 0) (fun () () -> true)
+
+  let-rec in-nth hash m n x =
+   if n == m
+   then in-right hash x
+   else if n <= 0
+   then in-left hash x
+   else in-right int (in-nth hash m (n - 1) x)
 
   let string =
     comap
