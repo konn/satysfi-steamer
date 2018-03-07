@@ -1,0 +1,112 @@
+@import: either
+@import: local-string
+@require: list
+
+module Hashable : sig
+  type 'a hasher
+
+  val hash-with-salt : 'a hasher -> int -> 'a -> int
+  val hash           : 'a hasher -> 'a -> int
+  val equal          : 'a hasher -> 'a -> 'a -> bool
+
+  val mk-with-salt : (int -> 'a -> int) -> ('a -> 'a -> bool) -> 'a hasher
+  val mk : ('a -> int) -> ('a -> 'a -> bool) -> 'a hasher
+
+  val sum:     'a hasher -> 'b hasher -> ('a 'b Either.either) hasher
+  val product: 'a hasher -> 'b hasher -> ('a * 'b) hasher
+  val comap  : ('a -> 'b) -> 'b hasher -> 'a hasher
+
+  val int: int hasher
+  val list: 'a hasher -> ('a list) hasher
+  val string: string hasher
+end = struct
+  type 'a hasher =
+    (| hash-with-salt : int -> 'a -> int
+     ; hash           :        'a -> int
+     ; equal          :  'a -> 'a -> bool
+     |)
+
+  let hash-with-salt hasher salt a = hasher#hash-with-salt salt a
+  let hash hasher a = hasher#hash a
+  let equal hasher a b = hasher#equal a b
+
+  let mk-with-salt hws eql =
+    (| hash-with-salt = hws
+     ; hash = hws 142591788
+     ; equal = eql
+     |)
+
+  let distinguisher = -3074457345618258603
+
+  let product has-a has-b =
+    let equal (a, b) (c, d) = has-a#equal a c && has-b#equal b d
+    in (| hash-with-salt =
+            (fun sal (a, b) ->
+             (has-b#hash-with-salt (has-a#hash-with-salt sal a) b)
+            )
+        ; hash = (fun (a, b) -> has-b#hash-with-salt (has-a#hash a) b)
+        ; equal = equal
+        |)
+
+  let combine h1 h2 = xor (h1 * 16777619) h2
+
+  let sum has-a has-b =
+    let hash =
+         Either.from
+           (hash-with-salt has-a 0)
+           (hash-with-salt has-b distinguisher)
+    in
+    let-rec hws s =
+         Either.from
+           (hash-with-salt has-a (combine s 0))
+           (hash-with-salt has-b (combine s distinguisher))
+    in
+    let eql ab1 ab2 =
+      Either.from
+        (fun a1 ->
+          Either.from
+            (fun a2 -> equal has-a a1 a2)
+            (fun b2 -> false)
+            ab2)
+        (fun b1 ->
+          Either.from
+            (fun a2 -> false)
+            (fun b2 -> equal has-b b1 b2)
+            ab2)
+        ab1
+    in (| hash = hash
+        ; hash-with-salt = hws
+        ; equal = eql
+        |)
+
+  let mk hash eql =
+    (| hash = hash
+     ; hash-with-salt = (fun salt x -> combine salt (hash x) )
+     ; equal = eql
+     |)
+
+  let int = mk (fun i -> i) (==)
+
+  let list has =
+    let-rec eql
+    | [] [] = true
+    | (x :: xs) [] = false
+    | [] (y :: ys) = false
+    | (x :: xs) (y :: ys) = has#equal x y && eql xs ys
+    in
+    let finalise = (fun (s, l) -> (int#hash-with-salt s l)) in
+    let step = (fun (s, l) x -> (has#hash-with-salt s x, l + l)) in 
+    let hsw s arr = finalise (List.fold-left step (s, 0) arr)
+    in mk-with-salt hsw eql
+
+  let comap f has =
+    (| hash = (fun x -> hash has (f x))
+     ; hash-with-salt = (fun s x -> hash-with-salt has s (f x))
+     ; equal = (fun x y -> equal has (f x) (f y))
+     |)
+
+  let string =
+    comap
+      LocalString.list-of-chars
+      (list (mk char-code string-same))
+end
