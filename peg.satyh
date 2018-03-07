@@ -25,10 +25,13 @@ module PEG : sig
   val in-class        : string -> 'a peg
   val not-in-class    : string -> 'a peg
   val not-followed-by : 'a peg -> 'a peg
+  val repeat-at-least : int -> 'a peg -> 'a peg
+  val repeat-at-most  : int -> 'a peg -> 'a peg
   val any-char        : 'a peg
   val optional        : 'a peg -> 'a peg
   val many            : 'a peg -> 'a peg
   val some            : 'a peg -> 'a peg
+  val memoised        : 'a peg -> 'a peg
   val choice          : 'a peg -> 'a peg -> 'a peg
   val choices         : ('a peg) list -> 'a peg
   val append          : 'a peg -> 'a peg -> 'a peg
@@ -67,6 +70,7 @@ end = struct
   | Digit
   | AlphaNum
   | EOS
+  | Memoised      of 'a peg
 
   type 'a tagged-string =
        TagStr of 'a option * string * ('a tagged-string) list
@@ -125,6 +129,7 @@ end = struct
   let optional re = Optional(re)
   let many re = Many(re)
   let some re = Append(re , Many re)
+  let memoised p = Memoised(p)
   let choice l r = Choice(l, r)
   let choices ps =
       match ps with
@@ -138,6 +143,12 @@ end = struct
   let alpha = Alpha
   let digit = Digit
   let alphanum = AlphaNum
+  let-rec repeat-at-least n p =
+    if n <= 0
+    then many p
+    else append p (repeat-at-least (n - 1) p)
+  let-rec repeat-at-most n p =
+    append (cat (LocalList.replicate n (optional p))) (not-followed-by p)
   let regexp re  = RegExp(re)
   let char-but p = append (not-followed-by p) any-char
   let spaces  = many (in-class (string-unexplode [9; 10; 12; 32]))
@@ -186,6 +197,7 @@ end = struct
   | d pp (Append(l, r)) =
       paren (d > cat-fixity) (pp-peg-with-prec cat-fixity pp l ^  pp-peg-with-prec cat-fixity pp r)
   | d pp (EOS)      = `$`
+  | d pp (Memoised(p)) = pp-peg-with-prec d pp p
 
   let pp-peg f = pp-peg-with-prec unary-fixity (fun r -> arabic (Option.from (-1) (f r)))
 
@@ -241,6 +253,7 @@ end = struct
   | cmp (Optional p) (InClass cls) = gt
   | cmp (Optional p) (Optional q) = compare-peg cmp p q
   | cmp (Optional p) k = lt
+  | cmp (Many p) (Memoised(q)) = lt
   | cmp (Many p) (EOS) = lt
   | cmp (Many p) (AlphaNum) = lt
   | cmp (Many p) (Digit) = lt
@@ -251,6 +264,7 @@ end = struct
   | cmp (Many p) (Choice(q, r)) = lt
   | cmp (Many p) (Many q) = compare-peg cmp p q
   | cmp (Many p) k = gt
+  | cmp (Choice(l, r)) (Memoised(p)) = lt
   | cmp (Choice(l, r)) (EOS) = lt
   | cmp (Choice(l, r)) (AlphaNum) = lt
   | cmp (Choice(l, r)) (Digit) = lt
@@ -261,6 +275,7 @@ end = struct
   | cmp (Choice(l, r)) (Choice(s, t)) =
       Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
   | cmp (Choice(l, r)) k = gt
+  | cmp (Append(l, r)) (Memoised(p)) = lt
   | cmp (Append(l, r)) (EOS) = lt
   | cmp (Append(l, r)) (AlphaNum) = lt
   | cmp (Append(l, r)) (Digit) = lt
@@ -270,6 +285,7 @@ end = struct
   | cmp (Append(l, r)) (Append(s, t)) =
       Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
   | cmp (Append p) k = gt
+  | cmp (NotFollowedBy p) (Memoised(q)) = lt
   | cmp (NotFollowedBy p) (EOS) = lt
   | cmp (NotFollowedBy p) (AlphaNum) = lt
   | cmp (NotFollowedBy p) (Digit) = lt
@@ -277,28 +293,39 @@ end = struct
   | cmp (NotFollowedBy p) (RegExp re) = lt
   | cmp (NotFollowedBy p) (NotFollowedBy q) = compare-peg cmp p q
   | cmp (NotFollowedBy p) k = gt
+  | cmp (RegExp p) (Memoised(q)) = lt
   | cmp (RegExp p) (EOS) = lt
   | cmp (RegExp p) (AlphaNum) = lt
   | cmp (RegExp p) (Digit) = lt
   | cmp (RegExp p) (Alpha) = lt
   | cmp (RegExp p) (RegExp q) = compare-string p q
   | cmp (RegExp p) k = gt
+  | cmp (Alpha) (Memoised(q)) = lt
   | cmp (Alpha) (EOS) = lt
   | cmp (Alpha) (AlphaNum) = lt
   | cmp (Alpha) (Digit) = lt
   | cmp (Alpha) (Alpha) = eq
   | cmp (Alpha) k = gt
+  | cmp (Digit) (Memoised(q)) = lt
   | cmp (Digit) (EOS) = lt
   | cmp (Digit) (AlphaNum) = lt
   | cmp (Digit) (Digit) = eq
   | cmp (Digit) k       = gt
+  | cmp (AlphaNum) (Memoised(q)) = lt
   | cmp (AlphaNum) (EOS) = lt
   | cmp (AlphaNum) (AlphaNum) = eq
   | cmp (AlphaNum) k       = gt
+  | cmp (EOS) (Memoised(q)) = lt
   | cmp (EOS) (EOS) = eq
   | cmp (EOS) k = gt
+  | cmp (Memoised(p)) (Memoised(q)) = compare-peg cmp p q
+  | cmp (Memoised(p)) k = gt
 
   let peg-ord ord = Ordering.from-compare (compare-peg ord)
+
+  let allocates m =
+    let go = (fun (k, (c, d)) n -> LocalList.length (OrdMap.keys (!d)) + n)
+    in LocalList.fold-right go 0 (IntMap.to-list m)
 
   let peg-scan ord rules p text =
     let omap = OrdMap.ordmap (peg-ord ord) in
@@ -306,15 +333,15 @@ end = struct
     let-mutable memo <- IntMap.empty in
     let nth k =
         (match IntMap.lookup k (!memo) with
-        | None -> let-mutable d <- OrdMap.empty omap in
-                  let cell = (string-sub text k (total-len - k), d) in
+        | None -> let-mutable d <- OrdMap.empty in
+                  let cell = (string-sub text k (total-len - k), d, total-len == k) in
                   let () = memo <- IntMap.insert k cell (!memo)
                   in cell
         | Some(d) -> d
         )
     in 
     let-rec loop q n =
-      let (input, d) = nth n in
+      let (input, d, at-eos) = nth n in
       let memoise f =
             (match OrdMap.lookup omap q (!d) with
             | None -> let ans = f () in
@@ -323,29 +350,26 @@ end = struct
             | Some(tr) -> tr
             )
       in
-      let at-eos = n == total-len in
       match q with
+      | Memoised(p) -> memoise (fun () -> loop p n)
       | NonTerminal(b) ->
           memoise
           (fun () ->
           (match loop (rules b) n with
           | None -> None
-          | Some(TagStr(m, str, chs), pos) -> Some(TagStr(Some(b), str, [TagStr(m, str, chs)]), pos)
+          | Some(TagStr(m, str, chs), pos) -> Some(TagStr(Some(b), str, chs), pos)
           ))
       | Fail -> None
       | Epsilon -> Some(TagStr(None, string-empty, []), n)
       | EOS ->
-          memoise (fun () ->
-          (if at-eos
+          if at-eos
           then Some(TagStr(None, empstr, []), n)
-          else None))
+          else None
       | RegExp re ->
-          memoise 
-          (fun () ->
            (match string-scan (regexp-of-string re) input with
            | Some(ans, rest) ->
              Some(TagStr(None, ans, []), n + string-length ans)
-           | None -> None))
+           | None -> None)
       | Many(p) ->
           if at-eos
           then Some(TagStr(None, string-empty, []), n)
@@ -404,8 +428,9 @@ end = struct
              )
           )
   in loop p 0 <&> (fun (tstr, pos) ->
-       (let rest = string-sub text pos (total-len - pos)
-        in (tstr, rest)
+       (let rest = string-sub text pos (total-len - pos) in
+%        let () = display-message (unwords [`Allocated:`; arabic (allocates (!memo))]) in
+        (tstr, rest)
        )
      )
 end

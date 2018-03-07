@@ -48,13 +48,8 @@ end = struct
     | Number
     | Normal
     | Comment
-    | Spaces
     | OtherChar
     | Custom of 'a
-
-  type satysfi-aux
-    = StringBody
-    | StringContent
 
   type void = Dummy
   type simple-token = void token
@@ -116,10 +111,8 @@ end = struct
      | Number    -> lexeme synt#number
      | Normal    -> lexeme (PEG.some symchar)
      | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
-     | Spaces    -> delim
      | OtherChar -> PEG.char-but symchar >> PEG.spaces
      | Custom r  -> synt#custom-rules r 
-
 
    let program-line =
      PEG.cat [ PEG.spaces 
@@ -159,19 +152,13 @@ end = struct
   | ord (Number) k = Ordering.lt
   | ord (Normal) (Custom c) = Ordering.lt
   | ord (Normal) (OtherChar) = Ordering.lt
-  | ord (Normal) (Spaces) = Ordering.lt
   | ord (Normal) (Comment) = Ordering.lt
   | ord (Normal) (Normal) = Ordering.eq
   | ord (Normal) k = Ordering.gt
   | ord (Comment) (Custom c) = Ordering.lt
   | ord (Comment) (OtherChar) = Ordering.lt
-  | ord (Comment) (Spaces) = Ordering.lt
   | ord (Comment) (Comment) = Ordering.eq
   | ord (Comment) k = Ordering.gt
-  | ord (Spaces) (Custom c) = Ordering.lt
-  | ord (Spaces) (OtherChar) = Ordering.lt
-  | ord (Spaces) (Spaces) = Ordering.eq
-  | ord (Spaces) k = Ordering.gt
   | ord (OtherChar) (Custom c) = Ordering.lt
   | ord (OtherChar) (OtherChar) = Ordering.eq
   | ord (OtherChar) k = Ordering.gt
@@ -180,20 +167,43 @@ end = struct
 
   let parse-syntax synt str = PEG.peg-scan (tok-ord synt#ordering) (build-peg synt) program-line str
 
+
+  type satysfi-aux
+    = StringEdge of int
+    | StringContent of int
+    | Quote
+
+  let rule = PEG.rule
+  let compare-int i j = Ordering.compare Ordering.int i j
+
   let satysfi-syntax : satysfi-aux syntax =
-    let quote = PEG.string (string-unexplode [96]) in
-    let symb-chars = PEG.choice PEG.alphanum (PEG.string `-`) in
-    let symbol p = PEG.cat [PEG.string p; PEG.not-followed-by symb-chars] in
-    let measure = PEG.choices (List.map symbol [`pt`; `mm`; `cm`; `inch`]) in
+    let ord = Ordering.from-compare (fun x y ->
+       (match (x, y) with
+       | (StringEdge(i), StringEdge(j)) -> compare-int i j
+       | (StringEdge(i), StringContent(j)) -> Ordering.lt
+       | (StringEdge(i), Quote) -> Ordering.lt
+       | (StringContent(j), StringEdge(i)) -> Ordering.gt
+       | (StringContent(i), StringContent(j)) -> compare-int i j
+       | (StringContent(i), Quote) -> Ordering.lt
+       | (Quote, Quote) -> Ordering.eq
+       | (Quote, a) -> Ordering.gt
+       ))
+    in
+    let quote = rule (Custom(Quote)) in
+    let string-body = rule (Custom(StringEdge(0))) in
     let aux-rules b = 
         (match b with
-         | StringBody ->
-             PEG.choices [ PEG.cat [quote ; PEG.rule (Custom(StringBody)); quote]
-                         ; PEG.rule (Custom(StringContent))
+         | Quote -> PEG.string (string-unexplode [96])
+         | StringEdge(i) ->
+             PEG.choices [ PEG.cat [quote ; rule (Custom(StringEdge(i+1))); quote]
+                         ; PEG.rule (Custom(StringContent(i)))
                          ]
-         | StringContent ->
-             PEG.some (PEG.char-but quote)
+         | StringContent(j) ->
+             PEG.some (PEG.choices [PEG.char-but quote ; PEG.repeat-at-most j quote])
          ) in 
+    let symb-chars = PEG.memoised (PEG.choice PEG.alphanum (PEG.string `-`)) in
+    let symbol p = (PEG.cat [PEG.string p; PEG.not-followed-by symb-chars]) in
+    let measure = PEG.memoised (PEG.choices (List.map symbol [`pt`; `mm`; `cm`; `inch`])) in
     (| keywords =
            [ `let-inline`; `let`; `let-rec`; `let-mutable`
            ; `let-block`; `in`; `match`; `with`; `type`
@@ -240,7 +250,7 @@ end = struct
      ; string = PEG.choices
               [ PEG.cat
                   [ quote
-                  ; PEG.rule (Custom(StringBody))
+                  ; string-body
                   ; quote
                   ]
               ]
@@ -268,13 +278,7 @@ end = struct
      ; open-parens  = `({[<`
      ; close-parens = `]})>`
      ; custom-rules = aux-rules
-     ; ordering = Ordering.from-compare (fun x y ->
-       (match (x, y) with
-       | (StringBody, StringBody) -> Ordering.eq
-       | (StringBody, StringContent) -> Ordering.lt
-       | (StringContent, StringBody) -> Ordering.gt
-       | (StringContent, StringContent) -> Ordering.eq
-       ))
+     ; ordering = ord
      |)
 
    type coloring =
