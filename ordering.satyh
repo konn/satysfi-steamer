@@ -1,0 +1,137 @@
+module Ordering : sig
+  type 'a ord
+  type ordering
+
+  val lt : ordering
+  val gt : ordering
+  val eq : ordering
+  val from-compare : ('a -> 'a -> ordering) -> 'a ord
+  val from-eq-lt : ('a -> 'a -> bool) -> ('a -> 'a -> bool) -> 'a ord
+  val lex : ('a -> 'a -> ordering) -> ('b -> 'b -> ordering)
+         -> ('a * 'b -> 'a * 'b -> ordering)
+  val break-tie: ordering -> ordering -> ordering
+
+  val compare : 'a ord -> 'a -> 'a -> ordering
+  val less-than : 'a ord -> 'a -> 'a -> bool
+  val greater-than : 'a ord -> 'a -> 'a -> bool
+  val less-equal : 'a ord -> 'a -> 'a -> bool
+  val greater-equal : 'a ord -> 'a -> 'a -> bool
+  val equal : 'a ord -> 'a -> 'a -> bool
+  val case-lt-eq-gt: 'a ord -> 'a -> 'a  -> (unit -> 'b) -> (unit -> 'b) -> (unit -> 'b) -> 'b
+
+  val product: 'a ord -> 'b ord -> ('a * 'b) ord
+  val int: int ord
+  val string: string ord
+  val unit:   unit ord
+
+end = struct
+  type ordering = LT | EQ | GT
+  type 'a compare = 'a -> 'a -> ordering
+  type 'a bin = 'a -> 'a -> bool
+
+  let lt = LT
+  let eq = EQ
+  let gt = GT
+
+  type 'a ord =
+    (| compare : 'a -> 'a -> ordering
+     ; leq     : 'a -> 'a -> bool
+     ; geq     : 'a -> 'a -> bool 
+     ; lt      : 'a -> 'a -> bool 
+     ; gt      : 'a -> 'a -> bool 
+     ; equal   : 'a -> 'a -> bool 
+     |)
+
+  let compare ord = ord#compare
+  let less-than ord = ord#lt
+  let greater-than ord = ord#gt
+  let less-equal ord = ord#leq
+  let greater-equal ord = ord#geq
+  let equal ord = ord#equal
+
+  let mk-leq cmp x y =
+    match cmp x y with
+    | LT -> true
+    | EQ -> true
+    | GT -> false
+
+  let mk-geq cmp x y =
+    match cmp x y with
+    | LT -> false
+    | EQ -> true
+    | GT -> true
+
+  let mk-lt cmp x y =
+    match cmp x y with
+    | LT -> false
+    | EQ -> false
+    | GT -> true
+
+  let mk-gt cmp x y =
+    match cmp x y with
+    | LT -> false
+    | EQ -> false
+    | GT -> true
+
+  let mk-equal cmp x y =
+    match cmp x y with
+    | LT -> false
+    | EQ -> true
+    | GT -> false
+
+  let from-compare cmp =
+    (| compare = cmp
+     ; leq = mk-leq cmp
+     ; geq = mk-geq cmp
+     ; lt = mk-lt cmp
+     ; gt = mk-gt cmp
+     ; equal = mk-equal cmp
+     |)
+
+  let from-eq-lt eql les =
+    let cmp x y =
+      if eql x y then EQ else if les x y then LT else GT
+    in
+    (| compare = cmp
+     ; leq = (fun x y -> les x y || eql x y)
+     ; geq = (fun x y -> les y x || eql x y)
+     ; lt  = les
+     ; gt  = (fun x y -> les y x)
+     ; equal = eql
+     |)
+
+  let case-lt-eq-gt ord a b l e g =
+    match ord#compare a b with
+    | LT -> l ()
+    | EQ -> e ()
+    | GT -> g ()
+
+  let-rec break-tie
+  | (LT) x = LT
+  | (GT) x = GT
+  | (EQ) x = x
+
+  let lex cmp-x cmp-y (x1, y1) (x2, y2) =
+    match cmp-x x1 x2 with
+    | LT -> LT
+    | GT -> GT
+    | EQ -> cmp-y y1 y2
+
+  let product ord1 ord2 =
+    from-compare (lex ord1#compare ord2#compare)
+
+  let int =
+    from-compare (fun x y ->
+      (if x < y then LT else if x == y then EQ else GT)
+    )
+
+  let string =
+    from-compare (fun x y ->
+     (let cmp = string-compare x y in
+      if cmp == 0
+       then EQ
+       else if cmp < 0 then LT else GT
+     ))
+
+  let unit = from-compare (fun x y -> EQ)
+end
