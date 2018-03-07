@@ -67,7 +67,7 @@ Steamer.document (|
     >
 
    +frame-nc ?:({コード例})<
-     +scode(```
+     +scode(````
           +listing {
             * 石井大海（いしい・ひろみ）
             * 筑波大数学専攻 博士後期二年
@@ -76,8 +76,9 @@ Steamer.document (|
                 ** 諏訪敬之氏が開発中の\emph{新組版システム}．
                 ** \LaTeX;やInDesignの競合
                 % This is a comment
+            * ```Nes`ted g``reat string```
           }
-     ```);
+     ````);
    >
 
 

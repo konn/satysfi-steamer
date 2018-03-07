@@ -9,6 +9,7 @@ module LocalString : sig
   val space: string
   val spaces : int -> string
   val split-at: int -> string -> string * string
+  val list-of-chars : string -> string list
 end = struct
   let string-empty = string-unexplode []
 
@@ -31,4 +32,13 @@ end = struct
       else if len < pos
       then (str, string-empty)
       else (string-sub str 0 pos, string-sub str pos (len - pos))
+
+  let list-of-chars str =
+    let len = string-length str in
+    let-rec
+      go n =
+        if len <= n
+        then []
+        else string-sub str n 1 :: go (n + 1)
+    in go 0
 end

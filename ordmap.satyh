@@ -8,13 +8,15 @@ module OrdMap : sig
 
   val ordmap    : 'k Ordering.ord -> 'k 'v ordmap-ops
 
-  val singleton : 'k 'v ordmap-ops -> 'k -> 'v -> 'k 'v ordmap
-  val empty     : 'k 'v ordmap-ops -> 'k 'v ordmap
-  val insert    : 'k 'v ordmap-ops -> 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
-  val from-list : 'k 'v ordmap-ops -> ('k * 'v) list -> 'k 'v ordmap
-  val to-list   : 'k 'v ordmap-ops -> 'k 'v ordmap -> ('k * 'v) list
-  val keys      : 'k 'v ordmap-ops -> 'k 'v ordmap -> 'k list
-  val lookup    : 'k 'v ordmap-ops -> 'k -> 'k 'v ordmap -> 'v option
+  val insert      : 'k 'v ordmap-ops -> 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+  val insert-with : 'k 'v ordmap-ops -> ('v -> 'v -> 'v) -> 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+  val from-list   : 'k 'v ordmap-ops -> ('k * 'v) list -> 'k 'v ordmap
+  val lookup      : 'k 'v ordmap-ops -> 'k -> 'k 'v ordmap -> 'v option
+
+  val singleton : 'k -> 'v -> 'k 'v ordmap
+  val empty     : 'k 'v ordmap
+  val keys      : 'k 'v ordmap -> 'k list
+  val to-list   : 'k 'v ordmap -> ('k * 'v) list
 end = struct
   type 'k 'v ordmap =
   | Branch of (| height : int
@@ -26,13 +28,10 @@ end = struct
   | Leaf
 
   type 'k 'v ordmap-ops =
-    (| singleton : 'k -> 'v -> 'k 'v ordmap
-     ; empty     : 'k 'v ordmap
-     ; insert    : 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
-     ; from-list : ('k * 'v) list -> 'k 'v ordmap
-     ; to-list   : 'k 'v ordmap -> ('k * 'v) list
-     ; keys      : 'k 'v ordmap -> 'k list
-     ; lookup    : 'k -> 'k 'v ordmap -> 'v option
+    (| insert      : 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+     ; insert-with : ('v -> 'v -> 'v) -> 'k -> 'v -> 'k 'v ordmap -> 'k 'v ordmap
+     ; from-list   : ('k * 'v) list -> 'k 'v ordmap
+     ; lookup      : 'k -> 'k 'v ordmap -> 'v option
      |)
 
   let-rec height
@@ -102,17 +101,16 @@ end = struct
     let (<<)    = Ordering.less-than ord in
     let compare = Ordering.compare ord in
     let case-ord = Ordering.case-lt-eq-gt in
-    let empty = Leaf in
-    let singleton i v = fork empty i v empty in
-    let-rec insert
-    | i a (Branch v) =
+    let-rec insert-with
+    | f i a (Branch v) =
         case-ord ord i v#key
-         (fun () -> branch (insert i a v#left) v#key v#value v#right)
-         (fun () -> branch v#left i a v#right)
-         (fun () -> branch v#left v#key v#value (insert i a v#right))
-    | i a (Leaf) = fork empty i a empty
+         (fun () -> branch (insert-with f i a v#left) v#key v#value v#right)
+         (fun () -> branch v#left i (f v#value a) v#right)
+         (fun () -> branch v#left v#key v#value (insert-with f i a v#right))
+    | f i a (Leaf) = fork Leaf i a Leaf
     in
-    let from-list = LocalList.fold-right (fun (k, v) -> insert k v) empty in
+    let insert i a t = insert-with (fun a b -> b) i a t in
+    let from-list = LocalList.fold-right (fun (k, v) -> insert k v) Leaf in
     let-rec lookup
     | i (Leaf) = None
     | i (Branch(v)) =
@@ -121,28 +119,26 @@ end = struct
         (fun () -> Some(v#value))
         (fun () -> lookup i v#right)
     in
-    let-rec to-list
-    | (Leaf)     = []
-    | (Branch v) = LocalList.concat [to-list v#left; [(v#key , v#value)]; to-list v#right]
-    in
-    let-rec keys
-    | (Leaf)     = []
-    | (Branch v) = LocalList.concat [keys v#left; [v#key]; keys v#right]
-    in
-    (| singleton = singleton
-     ; empty     = empty
-     ; insert    = insert
-     ; from-list = from-list
-     ; to-list   = to-list
-     ; keys = keys
-     ; lookup    = lookup
+    (| insert      = insert
+     ; insert-with = insert-with
+     ; from-list   = from-list
+     ; lookup      = lookup
      |)
 
-  let singleton os  = os#singleton
-  let empty os      = os#empty
-  let insert os     = os#insert
-  let from-list os  = os#from-list
-  let to-list os    = os#to-list
-  let keys os       = os#keys
-  let lookup os     = os#lookup
+  let insert os      = os#insert
+  let from-list os   = os#from-list
+  let lookup os      = os#lookup
+  let insert-with os = os#insert-with
+
+  let-rec to-list
+  | (Leaf)     = []
+  | (Branch v) = LocalList.concat [to-list v#left; [(v#key , v#value)]; to-list v#right]
+
+  let empty = Leaf
+  let singleton i v = fork empty i v empty
+
+  let-rec keys
+  | (Leaf)     = []
+  | (Branch v) = LocalList.concat [keys v#left; [v#key]; keys v#right]
+
 end

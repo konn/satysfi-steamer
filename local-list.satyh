@@ -1,3 +1,4 @@
+@require: list
 module LocalList : sig
   val fold-right: ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
   val fold-right-1: ('a -> 'a -> 'a) -> 'a list -> 'a

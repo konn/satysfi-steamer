@@ -6,24 +6,26 @@
 module IntMap : sig
   type 'a intmap
 
-  val singleton : int -> 'a -> 'a intmap
-  val empty     : 'a intmap
-  val insert    : int -> 'a -> 'a intmap -> 'a intmap
-  val from-list : (int * 'a) list -> 'a intmap
-  val to-list   : 'a intmap -> (int * 'a) list
-  val keys      : 'a intmap -> int list
-  val lookup    : int -> 'a intmap -> 'a option
+  val singleton   : int -> 'a -> 'a intmap
+  val empty       : 'a intmap
+  val insert-with : ('a -> 'a -> 'a) -> int -> 'a -> 'a intmap -> 'a intmap
+  val insert      : int -> 'a -> 'a intmap -> 'a intmap
+  val from-list   : (int * 'a) list -> 'a intmap
+  val to-list     : 'a intmap -> (int * 'a) list
+  val keys        : 'a intmap -> int list
+  val lookup      : int -> 'a intmap -> 'a option
 
 end = struct
   type 'a intmap = int 'a OrdMap.ordmap
 
   let imap = OrdMap.ordmap Ordering.int
 
-  let empty         = OrdMap.empty imap
-  let singleton i a = OrdMap.singleton imap i a
+  let empty         = OrdMap.empty
+  let singleton i a = OrdMap.singleton i a
   let insert i a d  = OrdMap.insert imap i a d
   let from-list ls  = OrdMap.from-list imap ls
-  let to-list d     = OrdMap.to-list   imap d
-  let keys d        = OrdMap.keys imap d
+  let to-list d     = OrdMap.to-list d
+  let keys d        = OrdMap.keys d
   let lookup i d    = OrdMap.lookup imap i d
+  let insert-with f i v d = OrdMap.insert-with imap f i v d
 end
