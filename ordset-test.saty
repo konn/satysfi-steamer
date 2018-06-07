@@ -1,0 +1,36 @@
+@require: stdja
+@import: ordset
+@import: ordering
+@import: local-string
+@import: option
+
+let cats = LocalString.cat-strings in
+let join = LocalString.join-strings in
+let spc  = LocalString.space in
+let pord = Ordering.product Ordering.int Ordering.int in
+let oset = OrdSet.ordset pord in
+let insert = OrdSet.insert oset in
+let is-member = OrdSet.is-member oset in
+let to-list = OrdSet.to-list oset in
+let empty = OrdSet.empty oset in
+let singleton = OrdSet.singleton oset in
+let show-map dic =
+    cats
+    [ `[`
+    ; join (`;` ^ spc)
+      (List.map
+        (fun (k, v) -> cats [`(`; arabic k; `,`; spc; arabic v; `)`])
+        (to-list dic))
+    ; `]`
+    ]
+in 
+let dic = insert (1, 222) (insert (1, 999) (insert (4,5) (singleton (2, 2)))) in
+let () = display-message (`Dictionary:` ^ spc ^ show-map dic) in
+
+StdJa.document (|
+   title = {} ; author = {}
+ ; show-title = false
+ ; show-toc = false
+ |) '<
+ +p {}
+>

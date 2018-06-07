@@ -1,0 +1,46 @@
+@require: stdja
+@import: ordmap
+@import: local-string
+@import: option
+
+let cats = LocalString.cat-strings in
+let join = LocalString.join-strings in
+let spc  = LocalString.space in
+let smap = OrdMap.ordmap Ordering.string in
+let insert = OrdMap.insert smap in
+let lookup = OrdMap.lookup smap in
+let empty  = OrdMap.empty smap in
+let to-list = OrdMap.to-list smap in
+let show-map dic =
+    cats
+    [ `[`
+    ; join (`;` ^ spc)
+      (List.map
+        (fun (k, v) -> cats [`(`; k; `,`; spc; arabic (!v); `)`])
+        (to-list dic))
+    ; `]`
+    ]
+in
+let show-mvar = Option.show (fun v -> arabic (!v)) in
+let-mutable memo <- empty in
+let-mutable d <- 24 in
+let () = memo <- insert `0` d (!memo) in
+let-mutable d <- 42 in
+let () = memo <- insert `hello, sailer` d (!memo) in
+let-mutable e <- 9999 in
+let () = memo <- insert `1` e (!memo) in
+let () = display-message (`Last: ` ^ show-map (!memo)) in
+let () = display-message (`Looked: ` ^ show-mvar (lookup `0` (!memo)))
+in
+let () = display-message (`Looked: ` ^ show-mvar (lookup `1` (!memo)))
+in
+let () = display-message (`Looked: ` ^ show-mvar (lookup `2` (!memo)))
+in 
+
+StdJa.document (|
+   title = {} ; author = {}
+ ; show-title = false
+ ; show-toc = false
+ |) '<
+ +p {}
+>

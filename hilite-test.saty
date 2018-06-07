@@ -1,0 +1,12 @@
+@require: stdja
+@import: hilite
+
+StdJa.document (|
+   title = {} ; author = {}
+ ; show-title = false
+ ; show-toc = false
+ |) '<
+  +section{foo}<
+ %    +hcode?*?*?:(Hilite.satysfi-syntax)(````1````);
+  >
+>

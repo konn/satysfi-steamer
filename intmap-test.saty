@@ -1,0 +1,43 @@
+@require: stdja
+@import: intmap
+@import: local-string
+@import: option
+
+let cats = LocalString.cat-strings in
+let join = LocalString.join-strings in
+let spc  = LocalString.space in
+let show-map dic =
+    cats
+    [ `[`
+    ; join (`;` ^ spc)
+      (List.map
+        (fun (k, v) -> cats [`(`; arabic k; `,`; spc; arabic (!v); `)`])
+        (IntMap.to-list dic))
+    ; `]`
+    ]
+in 
+let show-mvar = Option.show (fun v -> arabic (!v)) in
+let insert = IntMap.insert in
+let lookup = IntMap.lookup in
+let-mutable memo <- IntMap.empty in
+let-mutable d <- 24 in 
+let () = memo <- insert 0 d (!memo) in
+let () = memo <- insert 2 d (!memo) in
+let () = d <- 42 in
+let-mutable e <- 99999 in
+let () = memo <- insert 1 e (!memo) in 
+let () = display-message (`Last: ` ^ show-map (!memo)) in
+let () = display-message (`Looked: ` ^ show-mvar (lookup 0 (!memo)))
+in
+let () = display-message (`Looked: ` ^ show-mvar (lookup 1 (!memo)))
+in
+let () = display-message (`Looked: ` ^ show-mvar (lookup 2 (!memo)))
+in 
+
+StdJa.document (|
+   title = {} ; author = {}
+ ; show-title = false
+ ; show-toc = false
+ |) '<
+ +p {}
+>
