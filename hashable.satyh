@@ -53,7 +53,7 @@ end = struct
         ; equal = equal
         |)
 
-  let combine h1 h2 = xor (h1 * 16777619) h2
+  let combine h1 h2 = bxor (h1 * 16777619) h2
 
   let sum has-a has-b =
     let hash =
