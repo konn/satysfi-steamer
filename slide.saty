@@ -12,11 +12,11 @@
 
 let-block cxt +scode ?:msize inner =
   read-block cxt (match msize with
-  | None -> ('<+hcode?*?*?:(Hilite.satysfi-syntax)(inner);>)
-  | Some(size) -> '<+hcode?:(size)?*?:(Hilite.satysfi-syntax)(inner);>)
+  | None -> ('<+hcode?*?*(Hilite.satysfi-syntax)(inner);>)
+  | Some(size) -> '<+hcode?:(size)?*(Hilite.satysfi-syntax)(inner);>)
 
 let-inline cxt \scode inner =
-  read-inline cxt {\hcode?*?:(Hilite.satysfi-syntax)(inner);}
+  read-inline cxt {\hcode?*(Hilite.satysfi-syntax)(inner);}
 in
 
 Steamer.document (|
@@ -80,7 +80,6 @@ Steamer.document (|
           }
      ````);
    >
-
 
    +frame<
      +p-center { \LARGE{ところで} }

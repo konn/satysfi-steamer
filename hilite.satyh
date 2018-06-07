@@ -1,7 +1,6 @@
 % Syntax Highlighting, Lite Edition.
 @require: list
 @require: color
-@require: gr
 @require: vdecoset
 @import: decoset
 @import: local-list
@@ -14,15 +13,16 @@ module Hilite : sig
   type 'a syntax
   type coloring
   type 'a token
-  type simple-token
   type satysfi-aux
-  val highlight    : context -> coloring -> 'a syntax -> string -> inline-boxes
-  val empty-syntax : 'a syntax
-  val default-coloring : coloring
+
+  val token-hasher      : 'a Hashable.hasher -> ('a token) Hashable.hasher
+  val highlight         : context -> coloring -> 'a syntax -> string -> inline-boxes
+  val empty-syntax      : 'a syntax
+  val default-coloring  : coloring
   val make-simple-theme : color -> coloring
-  val build-peg : 'aux syntax ->  'aux token -> ('aux token) PEG.peg
-  val satysfi-syntax : satysfi-aux syntax
-  val parse-syntax : 'a syntax -> string -> (('a token) PEG.tagged-string * string) option
+  val build-peg         : 'aux syntax ->  'aux token -> ('aux token) PEG.peg
+  val satysfi-syntax    : satysfi-aux syntax
+  val parse-syntax      : 'a syntax -> string -> (('a token) PEG.tagged-string * string) option
 
   val comment   : 'a token
   val keyword   : 'a token
@@ -34,9 +34,9 @@ module Hilite : sig
 
   direct \code :[inline-text] inline-cmd
   direct \meta :[math] inline-cmd
-  direct \hcode : [coloring?; ('a syntax)?; string] inline-cmd
+  direct \hcode : [coloring?; ('a syntax); string] inline-cmd
   direct +code : [length?; string] block-cmd
-  direct +hcode : [length?; coloring?; ('a syntax)?; string] block-cmd
+  direct +hcode : [length?; coloring?; ('a syntax); string] block-cmd
   direct +console : [length?; string] block-cmd
 
 end = struct
@@ -51,9 +51,6 @@ end = struct
     | OtherChar
     | Custom of 'a
 
-  type void = Dummy
-  type simple-token = void token
-
   let keyword   = Keyword
   let primitive = Primitive
   let commandR  = Command
@@ -63,6 +60,7 @@ end = struct
   let comment   = Comment
 
   type 'a syntax =
+      Syntax of
       (| keywords     : string list
        ; primitives   : string list
        ; commands     : ('a token) PEG.peg
@@ -73,13 +71,11 @@ end = struct
        ; open-parens  : string
        ; close-parens : string
        ; custom-rules : 'a -> ('a token) PEG.peg
-       ; ordering: 'a Ordering.ord
+       ; hasher: 'a Hashable.hasher
        |)
 
-  let unsafe-id-eq-ord : 'a ord
-  = Ordering.from-compare (fun x y -> Ordering.eq)
-
    let empty-syntax : 'a syntax =
+      Syntax
       (| keywords     = []
        ; primitives   = []
        ; commands     = PEG.fail
@@ -90,14 +86,11 @@ end = struct
        ; open-parens  = LocalString.string-empty
        ; close-parens = LocalString.string-empty
        ; custom-rules = (fun b -> PEG.fail)
-       ; ordering = unsafe-id-eq-ord
+       ; hasher = Hashable.mk (fun x -> 0) (fun x y -> true)
        |)
 
-  let (<|>) = PEG.choice
-  let (>>)  = PEG.append
-
-  let build-peg
-  | synt tk =
+  let build-peg : 'a syntax ->  'a token -> ('a token) PEG.peg
+  | (Syntax synt) tk =
     let symchar = synt#symbol-chars in
     let delim = PEG.choices [ PEG.spaces1 ; PEG.not-followed-by symchar ] in
     let reserved str = PEG.cat [PEG.string str ; PEG.not-followed-by symchar; delim] in
@@ -111,7 +104,7 @@ end = struct
      | Number    -> lexeme synt#number
      | Normal    -> lexeme (PEG.some symchar)
      | Comment   -> PEG.cat [ synt#comment ; PEG.lookahead PEG.eos ]
-     | OtherChar -> PEG.char-but symchar >> PEG.spaces
+     | OtherChar -> PEG.cat [PEG.char-but symchar; PEG.spaces]
      | Custom r  -> synt#custom-rules r 
 
    let program-line =
@@ -129,66 +122,64 @@ end = struct
              ; PEG.eos
              ]
 
-  let-rec tok-ord
-  | ord (Keyword) (Keyword) = Ordering.eq
-  | ord (Keyword) k = Ordering.lt
-  | ord (Primitive) (Keyword) = Ordering.gt
-  | ord (Primitive) (Primitive) = Ordering.eq
-  | ord (Primitive) k = Ordering.lt
-  | ord (Command) (Keyword) = Ordering.gt
-  | ord (Command) (Primitive) = Ordering.gt
-  | ord (Command) (Command) = Ordering.eq
-  | ord (Command) k = Ordering.lt
-  | ord (String) (Keyword) = Ordering.gt
-  | ord (String) (Primitive) = Ordering.gt
-  | ord (String) (Command) = Ordering.gt
-  | ord (String) (String) = Ordering.eq
-  | ord (String) k = Ordering.lt
-  | ord (Number) (Keyword) = Ordering.gt
-  | ord (Number) (Primitive) = Ordering.gt
-  | ord (Number) (Command) = Ordering.gt
-  | ord (Number) (String) = Ordering.gt
-  | ord (Number) (Number) = Ordering.eq
-  | ord (Number) k = Ordering.lt
-  | ord (Normal) (Custom c) = Ordering.lt
-  | ord (Normal) (OtherChar) = Ordering.lt
-  | ord (Normal) (Comment) = Ordering.lt
-  | ord (Normal) (Normal) = Ordering.eq
-  | ord (Normal) k = Ordering.gt
-  | ord (Comment) (Custom c) = Ordering.lt
-  | ord (Comment) (OtherChar) = Ordering.lt
-  | ord (Comment) (Comment) = Ordering.eq
-  | ord (Comment) k = Ordering.gt
-  | ord (OtherChar) (Custom c) = Ordering.lt
-  | ord (OtherChar) (OtherChar) = Ordering.eq
-  | ord (OtherChar) k = Ordering.gt
-  | ord (Custom f) (Custom g) = Ordering.compare ord f g
-  | ord (Custom f) k = Ordering.gt
+  let tok-eql h l r =
+    (match (l, r) with
+    | (Keyword, Keyword) -> true
+    | (Primitive, Primitive) -> true
+    | (Command, Command) -> true
+    | (String, String) -> true
+    | (Number, Number) -> true
+    | (Normal, Normal) -> true
+    | (Comment, Comment) -> true
+    | (OtherChar, OtherChar) -> true
+    | (Custom i, Custom j) -> Hashable.equal h i j
+    | _ -> false
+    )
 
-  let parse-syntax synt str = PEG.peg-scan (tok-ord synt#ordering) (build-peg synt) program-line str
+  let hash-in-nth h m n i = Hashable.in-nth h m n i
 
+  let tok-hash h m =
+    (match m with
+     | (Keyword)   -> hash-in-nth Hashable.unit 8 0 ()
+     | (Primitive) -> hash-in-nth Hashable.unit 8 1 ()
+     | (Command)   -> hash-in-nth Hashable.unit 8 2 ()
+     | (String)    -> hash-in-nth Hashable.unit 8 3 ()
+     | (Number)    -> hash-in-nth Hashable.unit 8 4 ()
+     | (Normal)    -> hash-in-nth Hashable.unit 8 5 ()
+     | (Comment)   -> hash-in-nth Hashable.unit 8 6 ()
+     | (OtherChar) -> hash-in-nth Hashable.unit 8 7 ()
+     | (Custom i)  -> hash-in-nth h             8 8 i
+     )
+
+  let token-hasher h = Hashable.mk (tok-hash h) (tok-eql h)
+
+  let parse-syntax (Syntax synt) str =
+    PEG.peg-scan (token-hasher synt#hasher) (build-peg (Syntax synt)) program-line str
 
   type satysfi-aux
     = StringEdge of int
     | StringContent of int
     | Quote
 
-  let rule = PEG.rule
-  let compare-int i j = Ordering.compare Ordering.int i j
+  let rule b = PEG.rule b
+
+  let aux-hash m =
+  (match m with
+  | (StringEdge(i))    -> hash-in-nth Hashable.int 2 0 i
+  | (StringContent(j)) -> hash-in-nth Hashable.int 2 1 j
+  | (Quote)            -> hash-in-nth Hashable.int 2 2 0
+  )
+
+  let aux-eql l r =
+    (match (l, r) with
+    | (StringEdge i, StringEdge j)       -> i == j
+    | (StringContent i, StringContent j) -> i == j
+    | (Quote, Quote)                     -> true
+    | _                                  -> false
+    )
 
   let satysfi-syntax : satysfi-aux syntax =
-    let ord = Ordering.from-compare (fun x y ->
-       (match (x, y) with
-       | (StringEdge(i), StringEdge(j)) -> compare-int i j
-       | (StringEdge(i), StringContent(j)) -> Ordering.lt
-       | (StringEdge(i), Quote) -> Ordering.lt
-       | (StringContent(j), StringEdge(i)) -> Ordering.gt
-       | (StringContent(i), StringContent(j)) -> compare-int i j
-       | (StringContent(i), Quote) -> Ordering.lt
-       | (Quote, Quote) -> Ordering.eq
-       | (Quote, a) -> Ordering.gt
-       ))
-    in
+    let hasher = Hashable.mk aux-hash aux-eql in
     let quote = rule (Custom(Quote)) in
     let string-body = rule (Custom(StringEdge(0))) in
     let aux-rules b = 
@@ -204,6 +195,7 @@ end = struct
     let symb-chars = PEG.memoised (PEG.choice PEG.alphanum (PEG.string `-`)) in
     let symbol p = (PEG.cat [PEG.string p; PEG.not-followed-by symb-chars]) in
     let measure = PEG.memoised (PEG.choices (List.map symbol [`pt`; `mm`; `cm`; `inch`])) in
+    Syntax
     (| keywords =
            [ `let-inline`; `let`; `let-rec`; `let-mutable`
            ; `let-block`; `in`; `match`; `with`; `type`
@@ -278,10 +270,11 @@ end = struct
      ; open-parens  = `({[<`
      ; close-parens = `]})>`
      ; custom-rules = aux-rules
-     ; ordering = ord
+     ; hasher = hasher
      |)
 
-   type coloring =
+   type coloring  =
+       Coloring of
        (| keywords   : color
         ; primitives : color
         ; commands   : color
@@ -294,16 +287,18 @@ end = struct
    let rgb r g b = RGB(float r /. 255., float g /. 255., float b /. 255. )
 
    let default-coloring =
-                 (| keywords   = rgb 141 0 235
-                  ; commands   = rgb 117 112 255
-                  ; number     = Color.orange
-                  ; string     = Color.orange
-                  ; primitives = Color.red
-                  ; normal     = Color.black
-                  ; comment    = rgb 160 17 17
-                  |) % |=
+      Coloring
+      (| keywords   = rgb 141 0 235
+       ; commands   = rgb 117 112 255
+       ; number     = Color.orange
+       ; string     = Color.orange
+       ; primitives = Color.red
+       ; normal     = Color.black
+       ; comment    = rgb 160 17 17
+       |) % |=
 
   let make-simple-theme col =
+        Coloring
         (| keywords   = col
          ; commands   = col
          ; number     = col
@@ -323,7 +318,7 @@ end = struct
   let alternatives lst =
     `^\(` ^ LocalString.join-strings  `\|` lst ^ `\)$`
 
-  let colorise ctx theme synt (stok, str) =
+  let colorise ctx (Coloring theme) synt (stok, str) =
       let c = match stok with
               | Some(Keyword)   -> theme#keywords
               | Some(Primitive) -> theme#primitives
@@ -336,10 +331,9 @@ end = struct
       let col-ctx = ctx |> set-text-color c in
       read-inline col-ctx (embed-string str)
 
-  let (<!>) = Option.fmap
   let (<&>) a b = Option.fmap b a
   let highlight ctx coloring synt str =
-    let mtks = (parse-syntax synt str) <&> (fun (a, b) -> PEG.split-into-tags a)
+    let mtks = Option.fmap (fun (a, b) -> PEG.split-into-tags a) (parse-syntax synt str)
     in
     match mtks with
     | None -> read-inline (ctx |> set-text-color coloring#normal) (embed-string str)
@@ -448,13 +442,10 @@ end = struct
       (ctx |> set-font Latin (`Menlo`, .8, 0.))
       code
 
-  let-block ctx +hcode ?:size ?:mcol ?:msynt code =
+  let-block ctx +hcode ?:size ?:mcol synt code =
     let col = match mcol with
               | Some(col) -> col
               | None      -> default-coloring in
-    let synt = match msynt with
-               | Some(syn) -> syn
-               | None      -> empty-syntax in
     code-scheme
       size
       decoset-code
@@ -497,13 +488,10 @@ end = struct
     in
       script-guard Latin ib-frame
 
-  let-inline ctx \hcode ?:mcol ?:msynt src =
+  let-inline ctx \hcode ?:mcol synt src =
     let col = match mcol with
               | Some(col) -> col
-              | None      -> default-coloring in
-    let synt = match msynt with
-               | Some(syn) -> syn
-               | None      -> empty-syntax in
-    highlight (ctx |> set-font Latin (`Menlo`, .8, 0.)) col synt src
+              | None      -> default-coloring
+    in highlight (ctx |> set-font Latin (`Menlo`, .8, 0.)) col synt src
 
 end

@@ -1,22 +1,19 @@
 @require: list
 @import: local-string
-@import: ordmap
+@import: hashmap
 @import: intmap
 @import: option
-@import: ordering
+@import: hashable
 
 module PEG : sig
-
   type 'a peg
   type 'a tagged-string
 
   val untag              : 'a tagged-string -> string
   val view-tagged-string : 'a tagged-string -> 'a option * string * ('a tagged-string) list
   val split-into-tags    : 'a tagged-string -> ('a option * string) list
-  val compare-peg : ('a -> 'a -> Ordering.ordering) -> 'a peg -> 'a peg -> Ordering.ordering
+  val peg-hasher         : 'a Hashable.hasher -> ('a peg) Hashable.hasher
 
-  % val pp-peg-with     : ('a -> string) -> 'a peg -> string
-  % val pp-peg          : 'a peg -> string
   val rule            : 'a -> 'a peg
   val epsilon         : 'a peg
   val fail            : 'a peg
@@ -47,7 +44,7 @@ module PEG : sig
   val spaces          : 'a peg
   val spaces1         : 'a peg
 
-  val peg-scan : ('a -> 'a -> Ordering.ordering)
+  val peg-scan : 'a Hashable.hasher
               -> ('a -> 'a peg) -> 'a peg -> string -> ('a tagged-string * string) option
 
 end = struct
@@ -203,137 +200,75 @@ end = struct
 
   let unwords = LocalString.unwords
 
-  let lt = Ordering.lt
-  let gt = Ordering.gt
-  let eq = Ordering.eq
-  let olex = Ordering.lex
-  let compare-string = Ordering.compare Ordering.string
-  let-rec compare-peg
-  | cmp (NonTerminal b) (NonTerminal c) = cmp b c
-  | cmp (NonTerminal b) k         = lt
-  | cmp (AnyChar) (NonTerminal b) = gt
-  | cmp (AnyChar) (AnyChar)       = eq
-  | cmp (AnyChar) k               = lt
-  | cmp (Fail) (NonTerminal b)    = gt
-  | cmp (Fail) (AnyChar)          = gt
-  | cmp (Fail) (Fail)             = eq
-  | cmp (Fail) k                  = lt
-  | cmp (Epsilon) (NonTerminal b) = gt
-  | cmp (Epsilon) (AnyChar)       = gt
-  | cmp (Epsilon) (Fail)          = gt
-  | cmp (Epsilon) (Epsilon)       = eq
-  | cmp (Epsilon) k               = lt
-  | cmp (Lookahead p) (NonTerminal b) = gt
-  | cmp (Lookahead p) (AnyChar)       = gt
-  | cmp (Lookahead p) (Fail)          = gt
-  | cmp (Lookahead p) (Epsilon)       = gt
-  | cmp (Lookahead p) (Lookahead q)   = compare-peg cmp p q
-  | cmp (Lookahead p) k               = lt
-  | cmp (String s) (NonTerminal b) = gt
-  | cmp (String s) (AnyChar)       = gt
-  | cmp (String s) (Fail)          = gt
-  | cmp (String s) (Epsilon)       = gt
-  | cmp (String s) (Lookahead p)   = gt
-  | cmp (String s) (String t)      = compare-string s t
-  | cmp (String s) k               = lt
-  | cmp (InClass cls) (NonTerminal b) = gt
-  | cmp (InClass cls) (AnyChar)       = gt
-  | cmp (InClass cls) (Fail)          = gt
-  | cmp (InClass cls) (Epsilon)       = gt
-  | cmp (InClass cls) (Lookahead p)   = gt
-  | cmp (InClass cls) (String s)      = gt
-  | cmp (InClass cls) (InClass dls) = compare-string cls dls
-  | cmp (InClass cls) k               = lt
-  | cmp (Optional p) (NonTerminal b) = gt
-  | cmp (Optional p) (AnyChar) = gt
-  | cmp (Optional p) (Fail) = gt
-  | cmp (Optional p) (Epsilon) = gt
-  | cmp (Optional p) (Lookahead q) = gt
-  | cmp (Optional p) (String str) = gt
-  | cmp (Optional p) (InClass cls) = gt
-  | cmp (Optional p) (Optional q) = compare-peg cmp p q
-  | cmp (Optional p) k = lt
-  | cmp (Many p) (Memoised(q)) = lt
-  | cmp (Many p) (EOS) = lt
-  | cmp (Many p) (AlphaNum) = lt
-  | cmp (Many p) (Digit) = lt
-  | cmp (Many p) (Alpha) = lt
-  | cmp (Many p) (RegExp re) = lt
-  | cmp (Many p) (NotFollowedBy q) = lt
-  | cmp (Many p) (Append(q, r)) = lt
-  | cmp (Many p) (Choice(q, r)) = lt
-  | cmp (Many p) (Many q) = compare-peg cmp p q
-  | cmp (Many p) k = gt
-  | cmp (Choice(l, r)) (Memoised(p)) = lt
-  | cmp (Choice(l, r)) (EOS) = lt
-  | cmp (Choice(l, r)) (AlphaNum) = lt
-  | cmp (Choice(l, r)) (Digit) = lt
-  | cmp (Choice(l, r)) (Alpha) = lt
-  | cmp (Choice(l, r)) (RegExp re) = lt
-  | cmp (Choice(l, r)) (NotFollowedBy q) = lt
-  | cmp (Choice(l, r)) (Append(q, u)) = lt
-  | cmp (Choice(l, r)) (Choice(s, t)) =
-      Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
-  | cmp (Choice(l, r)) k = gt
-  | cmp (Append(l, r)) (Memoised(p)) = lt
-  | cmp (Append(l, r)) (EOS) = lt
-  | cmp (Append(l, r)) (AlphaNum) = lt
-  | cmp (Append(l, r)) (Digit) = lt
-  | cmp (Append(l, r)) (Alpha) = lt
-  | cmp (Append(l, r)) (RegExp re) = lt
-  | cmp (Append(l, r)) (NotFollowedBy q) = lt
-  | cmp (Append(l, r)) (Append(s, t)) =
-      Ordering.lex (compare-peg cmp) (compare-peg cmp) (l, r) (s, t)
-  | cmp (Append p) k = gt
-  | cmp (NotFollowedBy p) (Memoised(q)) = lt
-  | cmp (NotFollowedBy p) (EOS) = lt
-  | cmp (NotFollowedBy p) (AlphaNum) = lt
-  | cmp (NotFollowedBy p) (Digit) = lt
-  | cmp (NotFollowedBy p) (Alpha) = lt
-  | cmp (NotFollowedBy p) (RegExp re) = lt
-  | cmp (NotFollowedBy p) (NotFollowedBy q) = compare-peg cmp p q
-  | cmp (NotFollowedBy p) k = gt
-  | cmp (RegExp p) (Memoised(q)) = lt
-  | cmp (RegExp p) (EOS) = lt
-  | cmp (RegExp p) (AlphaNum) = lt
-  | cmp (RegExp p) (Digit) = lt
-  | cmp (RegExp p) (Alpha) = lt
-  | cmp (RegExp p) (RegExp q) = compare-string p q
-  | cmp (RegExp p) k = gt
-  | cmp (Alpha) (Memoised(q)) = lt
-  | cmp (Alpha) (EOS) = lt
-  | cmp (Alpha) (AlphaNum) = lt
-  | cmp (Alpha) (Digit) = lt
-  | cmp (Alpha) (Alpha) = eq
-  | cmp (Alpha) k = gt
-  | cmp (Digit) (Memoised(q)) = lt
-  | cmp (Digit) (EOS) = lt
-  | cmp (Digit) (AlphaNum) = lt
-  | cmp (Digit) (Digit) = eq
-  | cmp (Digit) k       = gt
-  | cmp (AlphaNum) (Memoised(q)) = lt
-  | cmp (AlphaNum) (EOS) = lt
-  | cmp (AlphaNum) (AlphaNum) = eq
-  | cmp (AlphaNum) k       = gt
-  | cmp (EOS) (Memoised(q)) = lt
-  | cmp (EOS) (EOS) = eq
-  | cmp (EOS) k = gt
-  | cmp (Memoised(p)) (Memoised(q)) = compare-peg cmp p q
-  | cmp (Memoised(p)) k = gt
+  let unit-hasher = Hashable.unit
+  let hash-in-nth h m n i = Hashable.in-nth h m n i
 
-  let peg-ord ord = Ordering.from-compare (compare-peg ord)
+  let peg-equal hasher =
+    let eql = Hashable.equal hasher in
+    let-rec loop p q =
+      (match (p, q) with
+      | (NonTerminal r, NonTerminal q) -> eql r q
+      | (AnyChar, AnyChar) -> true
+      | (Fail, Fail) -> true
+      | (Epsilon, Epsilon) -> true
+      | (Lookahead p, Lookahead q) -> loop p q
+      | (String str, String ttr) -> string-same str ttr
+      | (InClass c, InClass d) -> string-same c d
+      | (Optional p, Optional q) -> loop p q
+      | (Many p, Many q) -> loop p q
+      | (Choice(l, r), Choice(s, t)) -> loop l s && loop r t
+      | (Append(l, r), Append(s, t)) -> loop l s && loop r t
+      | (NotFollowedBy p, NotFollowedBy q) -> loop p q
+      | (RegExp re, RegExp se) -> string-same re se
+      | (Alpha, Alpha) -> true
+      | (Digit, Digit) -> true
+      | (AlphaNum, AlphaNum) -> true
+      | (EOS, EOS) -> true
+      | (Memoised p, Memoised q) -> loop p q
+      | (_, _) -> false
+      )
+    in loop
 
-  let allocates m =
-    let go = (fun (k, (c, d)) n -> LocalList.length (OrdMap.keys (!d)) + n)
-    in LocalList.fold-right go 0 (IntMap.to-list m)
+  let str-hasher = Hashable.string
 
-  let peg-scan ord rules p text =
-    let omap = OrdMap.ordmap (peg-ord ord) in
+  let-rec peg-hash
+  | h (NonTerminal b) = hash-in-nth h 17 0 b
+  | _ (AnyChar)       = hash-in-nth unit-hasher 17 1 ()
+  | _ (Fail)          = hash-in-nth unit-hasher 17 2 ()
+  | _ (Epsilon)       = hash-in-nth unit-hasher 17 3 ()
+  | h (Lookahead p)   =
+     hash-in-nth (Hashable.mk (peg-hash h) (peg-equal h)) 17 4 p
+  | _ (String str)    = hash-in-nth str-hasher 17 5 str
+  | _ (InClass str)   = hash-in-nth str-hasher 17 6 str
+  | h (Optional p)    =
+     hash-in-nth (Hashable.mk (peg-hash h) (peg-equal h)) 17 7 p
+  | h (Many p)    =
+     hash-in-nth (Hashable.mk (peg-hash h) (peg-equal h)) 17 8 p
+  | h (Choice(p, q))    =
+     let h2 = Hashable.mk (peg-hash h) (peg-equal h) in
+     hash-in-nth (Hashable.product h2 h2) 17 9 (p, q)
+  | h (Append(p, q))    =
+     let h2 = Hashable.mk (peg-hash h) (peg-equal h) in
+     hash-in-nth (Hashable.product h2 h2) 17 10 (p, q)
+  | h (NotFollowedBy p)    =
+     hash-in-nth (Hashable.mk (peg-hash h) (peg-equal h)) 17 11 p
+  | _ (RegExp str)   = hash-in-nth str-hasher 17 12 str
+  | _ (Alpha)         = hash-in-nth unit-hasher 17 13 ()
+  | _ (Digit)         = hash-in-nth unit-hasher 17 14 ()
+  | _ (AlphaNum)         = hash-in-nth unit-hasher 17 15 ()
+  | _ (EOS)         = hash-in-nth unit-hasher 17 16 ()
+  | h (Memoised p)    =
+     hash-in-nth (Hashable.mk (peg-hash h) (peg-equal h)) 17 17 p
+
+  let peg-hasher hasher = Hashable.mk (peg-hash hasher) (peg-equal hasher)
+
+  let peg-scan hasher rules p text =
+    let omap = HashMap.hashmap (peg-hasher hasher) in
     let total-len = string-length text in
     let-mutable memo <- IntMap.empty in
     let nth k =
         (match IntMap.lookup k (!memo) with
-        | None -> let-mutable d <- OrdMap.empty in
+        | None -> let-mutable d <- HashMap.empty in
                   let cell = (string-sub text k (total-len - k), d, total-len == k) in
                   let () = memo <- IntMap.insert k cell (!memo)
                   in cell
@@ -343,9 +278,9 @@ end = struct
     let-rec loop q n =
       let (input, d, at-eos) = nth n in
       let memoise f =
-            (match OrdMap.lookup omap q (!d) with
+            (match HashMap.lookup omap q (!d) with
             | None -> let ans = f () in
-                      let () = d <- OrdMap.insert omap q ans (!d) in
+                      let () = d <- HashMap.insert omap q ans (!d) in
                       ans
             | Some(tr) -> tr
             )
