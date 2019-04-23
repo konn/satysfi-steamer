@@ -41,6 +41,7 @@ module Steamer : sig
   direct \textsuperscript : [inline-text] inline-cmd
   direct +centered-image: [length; string] block-cmd
   direct \insert-image: [length; string] inline-cmd
+  direct \insert-pdf: [length; string; int] inline-cmd
 end = struct
 
   let-block ctx +centered-image wid srcpath =
@@ -49,6 +50,10 @@ end = struct
 
   let-inline ctx \insert-image w path =
     let img = load-image path in
+      use-image-by-width img w
+
+  let-inline ctx \insert-pdf w path page =
+    let img = load-pdf-image path page in
       use-image-by-width img w
 
 
