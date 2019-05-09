@@ -52,6 +52,10 @@ end = struct
     let img = load-image path in
       use-image-by-width img w
 
+  let-block ctx +centered-pdf wid srcpath page =
+  let img = load-pdf-image srcpath page in
+    line-break true true ctx (inline-fil ++ use-image-by-width img wid ++ inline-fil)
+
   let-inline ctx \insert-pdf w path page =
     let img = load-pdf-image path page in
       use-image-by-width img w
